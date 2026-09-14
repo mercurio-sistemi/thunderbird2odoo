@@ -172,7 +172,8 @@ function doAction(action) {
         }
         refreshBar();
       },
-      function () {
+      function (err) {
+        console.error("doAction sendMessage rejected:", err);
         _pendingAction = false;
         refreshBar();
       },
