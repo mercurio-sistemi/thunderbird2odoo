@@ -1,6 +1,19 @@
 var _lastAction = null;
 var _ignoreNextCacheChange = false;
 var _pendingAction = false;
+var _container = null;
+
+function getContainer() {
+  if (!_container) {
+    var mp = document.getElementById("messagepane");
+    if (mp && mp.parentElement) {
+      _container = mp.parentElement;
+    } else {
+      _container = document.body;
+    }
+  }
+  return _container;
+}
 
 function normalizeUrl(base, ...parts) {
   var url = base.replace(/\/+$/, "");
@@ -14,12 +27,9 @@ function renderBar(d, container) {
   var old = document.getElementById("odoo-status-bar");
   if (old) old.remove();
 
-  if (d && d.status) {
-    window._odooDebug = JSON.stringify(d);
-  } else {
-    console.debug("renderBar: no data", d);
-    return null;
-  }
+  if (!d || !d.status) return null;
+
+  window._odooDebug = JSON.stringify(d);
 
   var b = document.createElement("div");
   b.id = "odoo-status-bar";
@@ -49,7 +59,8 @@ function renderBar(d, container) {
   }
 
   function badgeStyle(primary) {
-    var base = "display:inline-flex;align-items:center;padding:1px 5px;border:1px solid ButtonBorder;border-radius:3px;text-decoration:none;cursor:pointer;background:ButtonFace;color:ButtonText";
+    var base =
+      "display:inline-flex;align-items:center;padding:1px 5px;border:1px solid ButtonBorder;border-radius:3px;text-decoration:none;cursor:pointer;background:ButtonFace;color:ButtonText";
     return primary
       ? base + ";font:caption"
       : base + ";font:small-caption;font-style:italic";
@@ -88,15 +99,15 @@ function renderBar(d, container) {
   l.appendChild(document.createTextNode("Odoo: "));
 
   if (d.status === "found") {
-    renderStatusLine(
-      l, d.status, null,
-      d.baseUrl, d.modelSlug, d.messageSlug,
-    );
+    renderStatusLine(l, d.status, null, d.baseUrl, d.modelSlug, d.messageSlug);
   } else if (d.status === "parent_found") {
     renderStatusLine(
-      l, d.status,
+      l,
+      d.status,
       "not found, only parent ",
-      d.baseUrl, d.parentModelSlug, d.parentMessageSlug,
+      d.baseUrl,
+      d.parentModelSlug,
+      d.parentMessageSlug,
     );
   } else if (d.status === "not_found") {
     renderStatusLine(l, d.status, "not found", null, null, null);
@@ -156,19 +167,19 @@ function doAction(action) {
             if (r.urlCopied) _lastAction += ", URL copied";
           }
           _ignoreNextCacheChange = true;
-          var container =
-            document.getElementById("messagepane") || document.body;
-          renderBar(r, container);
+          renderBar(r, getContainer());
           return;
         }
         refreshBar();
       },
-      function () {
+      function (err) {
+        console.error("doAction sendMessage rejected:", err);
         _pendingAction = false;
         refreshBar();
       },
     )
-    .catch(function () {
+    .catch(function (err) {
+      console.error("doAction failed:", err);
       _pendingAction = false;
     });
 }
@@ -179,14 +190,16 @@ function refreshBar() {
     .sendMessage({ action: "getOdooStatus" })
     .then(
       function (data) {
-        var container = document.getElementById("messagepane") || document.body;
-        renderBar(data, container);
+        if (!data || !data.status) return;
+        renderBar(data, getContainer());
       },
       function (err) {
         console.debug("refreshBar error:", err);
       },
     )
-    .catch(function () {});
+    .catch(function (err) {
+      console.error("refreshBar failed:", err);
+    });
 }
 
 messenger.runtime.onMessage.addListener(function (msg) {

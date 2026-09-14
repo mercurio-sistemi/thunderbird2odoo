@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.3
+
+### Fixes
+
+- **Import errors not shown**: errors during email import (e.g. Odoo AccessError) were silently swallowed when importing via the status bar "Add" button. Errors are now shown in a dialog so the full message is visible.
+- **Error message extraction**: `parseResponse` now correctly extracts human-readable error messages from Odoo HTTP error responses that return the error object at the top level (not nested under `error`).
+- **Verify errors not shown**: errors during the verify action were silently swallowed. The error now propagates and the status bar refreshes.
+- **Status bar error handling**: `handleGetOdooStatus` now throws errors instead of silently returning an error result that the display script ignored.
+- **Post-upload lookup errors**: removed silent error swallowing in post-upload email lookup; errors are now logged properly.
+- **Display script error logging**: silent `.catch(function () {})` handlers now log errors to the console.
+
 ## 0.6.2
 
 ### Changes

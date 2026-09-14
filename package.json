@@ -1,6 +1,6 @@
 {
   "name": "odoo-email-connector",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "description": "Thunderbird MailExtension to import emails into Odoo (>=19)",
   "private": true,
   "type": "module",

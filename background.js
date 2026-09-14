@@ -90,9 +90,15 @@ async function enrichWithParentUrl(cfg, entry) {
   const parentEntry = await getCachedResult(entry.parentMessageId);
   if (parentEntry) {
     if (parentEntry.odooMessageId)
-      entry.parentMessageSlug = normalizeUrl("mail.message", parentEntry.odooMessageId);
+      entry.parentMessageSlug = normalizeUrl(
+        "mail.message",
+        parentEntry.odooMessageId,
+      );
     if (parentEntry.model && parentEntry.resId)
-      entry.parentModelSlug = normalizeUrl(parentEntry.model, parentEntry.resId);
+      entry.parentModelSlug = normalizeUrl(
+        parentEntry.model,
+        parentEntry.resId,
+      );
   }
   return entry;
 }
@@ -109,8 +115,10 @@ function getUrl(entry) {
   }
   if (entry.modelSlug) return normalizeUrl(entry.baseUrl, entry.modelSlug);
   if (entry.messageSlug) return normalizeUrl(entry.baseUrl, entry.messageSlug);
-  if (entry.parentModelSlug) return normalizeUrl(entry.baseUrl, entry.parentModelSlug);
-  if (entry.parentMessageSlug) return normalizeUrl(entry.baseUrl, entry.parentMessageSlug);
+  if (entry.parentModelSlug)
+    return normalizeUrl(entry.baseUrl, entry.parentModelSlug);
+  if (entry.parentMessageSlug)
+    return normalizeUrl(entry.baseUrl, entry.parentMessageSlug);
   return null;
 }
 
@@ -220,15 +228,6 @@ async function findAndCache(cfg, id) {
     );
   }
   return result;
-}
-
-async function debugTry(prefix, fn) {
-  try {
-    return await fn();
-  } catch (err) {
-    console.debug(prefix + ": " + err.message);
-    return null;
-  }
 }
 
 async function setup() {
@@ -501,9 +500,11 @@ async function uploadAndShowResult(cfg, model, prefix, decoded, messageId) {
     // message_process returned a thread_id — email was routed successfully.
     let found = null;
     if (messageId) {
-      found = await debugTry("uploadAndShowResult: findMail failed", () =>
-        findAndCache(cfg, messageId),
-      );
+      try {
+        found = await findAndCache(cfg, messageId);
+      } catch (err) {
+        console.debug("uploadAndShowResult: findMail failed:", err);
+      }
     }
     if (found?.status === "found") {
       await showResult(prefix, found, cfg, true);
@@ -520,9 +521,12 @@ async function uploadAndShowResult(cfg, model, prefix, decoded, messageId) {
     }
   } else if (rawResult === false) {
     if (messageId) {
-      const found = await debugTry("uploadAndShowResult: findMail failed", () =>
-        findAndCache(cfg, messageId),
-      );
+      let found = null;
+      try {
+        found = await findAndCache(cfg, messageId);
+      } catch (err) {
+        console.debug("uploadAndShowResult: findMail failed:", err);
+      }
       if (found?.status === "found") {
         await showResult("Email already in Odoo (duplicate)", found, cfg, true);
         return;
@@ -547,7 +551,7 @@ async function handleOdooImporter(info) {
     if (!message) throw new Error("Select exactly one email");
     await importMessageById(message.id);
   } catch (err) {
-    notify("Odoo " + EN_DASH + " Error", err.message);
+    await showDialog("Odoo – Error", err.message);
   }
 }
 
@@ -737,7 +741,7 @@ async function handleGetOdooStatus(sender) {
     return entry;
   } catch (err) {
     console.debug("getOdooStatus: error", err);
-    return errorResult(err);
+    throw err;
   }
 }
 
@@ -757,7 +761,7 @@ async function handleVerifyMessage(msg, sender) {
     }
     return result;
   } catch (err) {
-    return errorResult(err);
+    throw err;
   }
 }
 
@@ -777,6 +781,7 @@ async function handleAddMessage(msg, sender) {
     if (url && entry.success) entry.urlCopied = await copyToClipboard(url);
     return entry;
   } catch (err) {
+    await showDialog("Odoo – Error", err.message);
     return errorResult(err);
   }
 }
@@ -798,7 +803,10 @@ browser.runtime.onMessage.addListener((msg, sender) => {
   try {
     switch (msg.action) {
       case "testConnection":
-        return getConnectionInfo(msg.config).then((info) => ({ ok: true, info }));
+        return getConnectionInfo(msg.config).then((info) => ({
+          ok: true,
+          info,
+        }));
 
       case "setup":
         return setup().then(() => ({ ok: true }));
