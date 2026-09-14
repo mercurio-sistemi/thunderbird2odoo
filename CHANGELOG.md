@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.3
+
+### Fixes
+
+- **Import errors not shown**: errors during email import (e.g. Odoo AccessError) were silently swallowed when importing via the status bar "Add" button. Errors are now shown in a dialog so the full message is visible.
+- **Error message extraction**: `parseResponse` now correctly extracts human-readable error messages from Odoo HTTP error responses that return the error object at the top level (not nested under `error`).
+
 ## 0.6.2
 
 ### Changes
