@@ -4,7 +4,8 @@ var _pendingAction = false;
 var _container = null;
 
 function getContainer() {
-  if (!_container) _container = document.getElementById("messagepane") || document.body;
+  if (!_container)
+    _container = document.getElementById("messagepane") || document.body;
   return _container;
 }
 
@@ -52,7 +53,8 @@ function renderBar(d, container) {
   }
 
   function badgeStyle(primary) {
-    var base = "display:inline-flex;align-items:center;padding:1px 5px;border:1px solid ButtonBorder;border-radius:3px;text-decoration:none;cursor:pointer;background:ButtonFace;color:ButtonText";
+    var base =
+      "display:inline-flex;align-items:center;padding:1px 5px;border:1px solid ButtonBorder;border-radius:3px;text-decoration:none;cursor:pointer;background:ButtonFace;color:ButtonText";
     return primary
       ? base + ";font:caption"
       : base + ";font:small-caption;font-style:italic";
@@ -91,15 +93,15 @@ function renderBar(d, container) {
   l.appendChild(document.createTextNode("Odoo: "));
 
   if (d.status === "found") {
-    renderStatusLine(
-      l, d.status, null,
-      d.baseUrl, d.modelSlug, d.messageSlug,
-    );
+    renderStatusLine(l, d.status, null, d.baseUrl, d.modelSlug, d.messageSlug);
   } else if (d.status === "parent_found") {
     renderStatusLine(
-      l, d.status,
+      l,
+      d.status,
       "not found, only parent ",
-      d.baseUrl, d.parentModelSlug, d.parentMessageSlug,
+      d.baseUrl,
+      d.parentModelSlug,
+      d.parentMessageSlug,
     );
   } else if (d.status === "not_found") {
     renderStatusLine(l, d.status, "not found", null, null, null);
@@ -169,7 +171,8 @@ function doAction(action) {
         refreshBar();
       },
     )
-    .catch(function () {
+    .catch(function (err) {
+      console.error("doAction failed:", err);
       _pendingAction = false;
     });
 }
@@ -187,7 +190,9 @@ function refreshBar() {
         console.debug("refreshBar error:", err);
       },
     )
-    .catch(function () {});
+    .catch(function (err) {
+      console.error("refreshBar failed:", err);
+    });
 }
 
 messenger.runtime.onMessage.addListener(function (msg) {

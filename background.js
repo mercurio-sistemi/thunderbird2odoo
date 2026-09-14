@@ -230,15 +230,6 @@ async function findAndCache(cfg, id) {
   return result;
 }
 
-async function debugTry(prefix, fn) {
-  try {
-    return await fn();
-  } catch (err) {
-    console.debug(prefix + ": " + err.message);
-    return null;
-  }
-}
-
 async function setup() {
   browser.menus.removeAll();
 
@@ -509,9 +500,11 @@ async function uploadAndShowResult(cfg, model, prefix, decoded, messageId) {
     // message_process returned a thread_id — email was routed successfully.
     let found = null;
     if (messageId) {
-      found = await debugTry("uploadAndShowResult: findMail failed", () =>
-        findAndCache(cfg, messageId),
-      );
+      try {
+        found = await findAndCache(cfg, messageId);
+      } catch (err) {
+        console.debug("uploadAndShowResult: findMail failed:", err);
+      }
     }
     if (found?.status === "found") {
       await showResult(prefix, found, cfg, true);
@@ -528,9 +521,12 @@ async function uploadAndShowResult(cfg, model, prefix, decoded, messageId) {
     }
   } else if (rawResult === false) {
     if (messageId) {
-      const found = await debugTry("uploadAndShowResult: findMail failed", () =>
-        findAndCache(cfg, messageId),
-      );
+      let found = null;
+      try {
+        found = await findAndCache(cfg, messageId);
+      } catch (err) {
+        console.debug("uploadAndShowResult: findMail failed:", err);
+      }
       if (found?.status === "found") {
         await showResult("Email already in Odoo (duplicate)", found, cfg, true);
         return;
@@ -745,7 +741,7 @@ async function handleGetOdooStatus(sender) {
     return entry;
   } catch (err) {
     console.debug("getOdooStatus: error", err);
-    return errorResult(err);
+    throw err;
   }
 }
 
@@ -765,7 +761,7 @@ async function handleVerifyMessage(msg, sender) {
     }
     return result;
   } catch (err) {
-    return errorResult(err);
+    throw err;
   }
 }
 
