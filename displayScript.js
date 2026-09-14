@@ -4,8 +4,14 @@ var _pendingAction = false;
 var _container = null;
 
 function getContainer() {
-  if (!_container)
-    _container = document.getElementById("messagepane") || document.body;
+  if (!_container) {
+    var mp = document.getElementById("messagepane");
+    if (mp && mp.parentElement) {
+      _container = mp.parentElement;
+    } else {
+      _container = document.body;
+    }
+  }
   return _container;
 }
 
