@@ -15,6 +15,12 @@ const countBtn = document.getElementById("countBtn");
 const countResult = document.getElementById("countResult");
 const cacheInfo = document.getElementById("cacheInfo");
 
+const helpdeskTeamIdInput = document.getElementById("helpdeskTeamId");
+const loadTeamsBtn = document.getElementById("loadTeams");
+const loadTeamsStatus = document.getElementById("loadTeamsStatus");
+const saveTicketBtn = document.getElementById("saveTicket");
+const ticketStatus = document.getElementById("ticketStatus");
+
 const syncSettingsForm = document.getElementById("syncSettings");
 const syncFields = [
   maxAgeInput,
@@ -24,6 +30,9 @@ const syncFields = [
   syncNowBtn,
   countBtn,
   syncSettingsForm,
+  helpdeskTeamIdInput,
+  loadTeamsBtn,
+  saveTicketBtn,
 ];
 function setSyncEnabled(enabled) {
   syncFields.forEach((el) => {
@@ -59,6 +68,7 @@ function invalidate() {
     "apikey",
     "maxAgeDays",
     "syncLimit",
+    "helpdeskTeamId",
   ]);
   if (stored.url) urlInput.value = stored.url;
   if (stored.db) dbInput.value = stored.db;
@@ -66,7 +76,10 @@ function invalidate() {
   if (stored.maxAgeDays !== undefined) maxAgeInput.value = stored.maxAgeDays;
   if (stored.syncLimit !== undefined) syncLimitInput.value = stored.syncLimit;
   invalidate();
-  if (stored.url && stored.apikey) setSyncEnabled(true);
+  if (stored.url && stored.apikey) {
+    setSyncEnabled(true);
+    loadTeams(stored.helpdeskTeamId);
+  }
   refreshCacheInfo();
 })();
 
@@ -133,6 +146,54 @@ clearCacheBtn.addEventListener("click", async () => {
   refreshCacheInfo();
 });
 
+async function loadTeams(selectAfter) {
+  const wanted =
+    selectAfter !== undefined && selectAfter !== null
+      ? String(selectAfter)
+      : helpdeskTeamIdInput.value;
+  loadTeamsStatus.textContent = "Loading…";
+  loadTeamsStatus.style.color = "";
+  loadTeamsBtn.disabled = true;
+  const result = await browser.runtime.sendMessage({
+    action: "listHelpdeskTeams",
+  });
+  loadTeamsBtn.disabled = false;
+  if (result?.ok) {
+    helpdeskTeamIdInput.innerHTML = "";
+    const noneOpt = document.createElement("option");
+    noneOpt.value = "";
+    noneOpt.textContent = "— not set —";
+    helpdeskTeamIdInput.appendChild(noneOpt);
+    for (const team of result.teams) {
+      const opt = document.createElement("option");
+      opt.value = String(team.id);
+      opt.textContent = team.name;
+      helpdeskTeamIdInput.appendChild(opt);
+    }
+    if (wanted) helpdeskTeamIdInput.value = wanted;
+    loadTeamsStatus.textContent =
+      result.teams.length + (result.teams.length === 1 ? " team" : " teams");
+    loadTeamsStatus.style.color = "green";
+  } else {
+    loadTeamsStatus.textContent =
+      "Failed: " + (result?.error || "unknown error");
+    loadTeamsStatus.style.color = "#c0392b";
+  }
+}
+
+loadTeamsBtn.addEventListener("click", () => loadTeams());
+
+saveTicketBtn.addEventListener("click", async () => {
+  const raw = helpdeskTeamIdInput.value;
+  if (raw === "") {
+    await browser.storage.local.remove("helpdeskTeamId");
+  } else {
+    await browser.storage.local.set({ helpdeskTeamId: parseInt(raw, 10) });
+  }
+  ticketStatus.textContent = "Saved";
+  ticketStatus.style.color = "green";
+});
+
 document.getElementById("settings").addEventListener("submit", async (e) => {
   e.preventDefault();
 
@@ -151,6 +212,7 @@ document.getElementById("settings").addEventListener("submit", async (e) => {
   if (result?.ok) {
     status.textContent = "Settings saved";
     setSyncEnabled(true);
+    loadTeams();
   } else {
     status.textContent =
       "Saved, but setup failed: " + (result?.error || "unknown error");

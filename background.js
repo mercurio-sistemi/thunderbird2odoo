@@ -12,6 +12,7 @@ import {
   searchMailMessages,
   countMailMessages,
   unifyMessageId,
+  listHelpdeskTeams,
 } from "./lib/odooClient.js";
 import { uploadMail, decodeRawMail } from "./lib/odooMailUpload.js";
 import {
@@ -197,13 +198,21 @@ async function showResult(prefix, r, cfg, sticky = false) {
 let _cachedConfig = null;
 
 browser.storage.onChanged.addListener((changes, area) => {
-  if (area === "local" && ["url", "db", "apikey"].some((k) => k in changes))
+  if (
+    area === "local" &&
+    ["url", "db", "apikey", "helpdeskTeamId"].some((k) => k in changes)
+  )
     _cachedConfig = null;
 });
 
 async function get_config() {
   if (_cachedConfig) return _cachedConfig;
-  _cachedConfig = await browser.storage.local.get(["url", "db", "apikey"]);
+  _cachedConfig = await browser.storage.local.get([
+    "url",
+    "db",
+    "apikey",
+    "helpdeskTeamId",
+  ]);
   return _cachedConfig;
 }
 
@@ -354,18 +363,20 @@ async function getHeaders(messageId) {
   return full.headers;
 }
 
-async function showDialog(title, message, buttons = []) {
-  const params = new URLSearchParams({
+async function showDialog(title, message, buttons = [], selects = null) {
+  const paramsObj = {
     title,
     message,
     buttons: JSON.stringify(buttons),
-  });
+  };
+  if (selects) paramsObj.selects = JSON.stringify(selects);
+  const params = new URLSearchParams(paramsObj);
   const url = browser.runtime.getURL("dialog.html?" + params);
   const win = await browser.windows.create({
     url: url,
     type: "popup",
     width: 600,
-    height: 360,
+    height: 360 + (selects ? selects.length * 70 : 0),
   });
   let done = false;
   return new Promise((resolve) => {
@@ -440,20 +451,70 @@ async function importMessageById(tbMessageId) {
 
   // Step 3: No predecessor found
   await cacheNotFoundResult(mid);
-  const btnIdx = await showDialog(
+
+  let teams = [];
+  try {
+    teams = await listHelpdeskTeams(cfg);
+  } catch (err) {
+    console.debug("importMessageById: could not load helpdesk teams:", err);
+  }
+
+  const selects = [
+    {
+      id: "importAs",
+      label: "Import as:",
+      options: [
+        { value: "helpdesk.ticket", label: "Ticket (Helpdesk)" },
+        { value: "crm.lead", label: "Opportunity (CRM Lead)" },
+        {
+          value: "generic",
+          label: "Generic",
+          title:
+            "Might fail on Odoo 19 without Lost Messages module, see https://github.com/joergsteffens/thunderbird2odoo",
+        },
+      ],
+      selected: "helpdesk.ticket",
+    },
+  ];
+  if (teams.length > 1) {
+    selects.push({
+      id: "team",
+      label: "Helpdesk team:",
+      options: teams.map((t) => ({ value: String(t.id), label: t.name })),
+      selected: String(cfg.helpdeskTeamId ?? teams[0].id),
+      showWhen: { id: "importAs", equals: "helpdesk.ticket" },
+    });
+  }
+
+  const dialogResult = await showDialog(
     "Odoo Email Connector",
     "This email and its predecessor are not in Odoo. How do you want to import it?",
     [
-      { title: "As Opportunity (CRM Lead)", value: 0 },
-      {
-        title: "Generic",
-        value: 1,
-        tooltip:
-          "Might fail on Odoo 19 without Lost Messages module, see https://github.com/joergsteffens/thunderbird2odoo",
-      },
+      { title: "Import", value: 0 },
+      { title: "Cancel", value: 1 },
     ],
+    selects,
   );
-  if (btnIdx === 0) {
+
+  if (typeof dialogResult !== "object" || dialogResult.value !== 0) return mid; // cancelled
+
+  const importAs = dialogResult.selections?.importAs;
+  if (importAs === "helpdesk.ticket") {
+    const teamId =
+      teams.length > 1
+        ? parseInt(dialogResult.selections?.team, 10)
+        : (teams[0]?.id ?? cfg.helpdeskTeamId ?? null);
+    const customValues =
+      teamId && !Number.isNaN(teamId) ? { team_id: teamId } : null;
+    await uploadAndShowResult(
+      cfg,
+      "helpdesk.ticket",
+      "Email imported as Ticket",
+      decoded,
+      mid,
+      customValues,
+    );
+  } else if (importAs === "crm.lead") {
     await uploadAndShowResult(
       cfg,
       "crm.lead",
@@ -461,7 +522,7 @@ async function importMessageById(tbMessageId) {
       decoded,
       mid,
     );
-  } else if (btnIdx === 1) {
+  } else {
     await uploadAndShowResult(cfg, false, "Email imported", decoded, mid);
   }
   return mid;
@@ -492,8 +553,15 @@ async function verifyMessageById(tbMessageId) {
   return await cacheNotFoundResult(mid);
 }
 
-async function uploadAndShowResult(cfg, model, prefix, decoded, messageId) {
-  const rawResult = await uploadMail(cfg, decoded, model);
+async function uploadAndShowResult(
+  cfg,
+  model,
+  prefix,
+  decoded,
+  messageId,
+  customValues = null,
+) {
+  const rawResult = await uploadMail(cfg, decoded, model, customValues);
   console.debug("uploadAndShowResult: rawResult=" + JSON.stringify(rawResult));
 
   if (rawResult) {
@@ -799,6 +867,17 @@ async function handleCountOdooMessages(msg) {
   }
 }
 
+async function handleListHelpdeskTeams() {
+  const cfg = await requireConfig();
+  if (!cfg) return { ok: false, error: "Not configured" };
+  try {
+    const teams = await listHelpdeskTeams(cfg);
+    return { ok: true, teams };
+  } catch (err) {
+    return errorResult(err);
+  }
+}
+
 browser.runtime.onMessage.addListener((msg, sender) => {
   try {
     switch (msg.action) {
@@ -822,6 +901,9 @@ browser.runtime.onMessage.addListener((msg, sender) => {
 
       case "countOdooMessages":
         return handleCountOdooMessages(msg);
+
+      case "listHelpdeskTeams":
+        return handleListHelpdeskTeams();
 
       case "clearCache":
         return clearAllCache().then(() => ({ ok: true }));

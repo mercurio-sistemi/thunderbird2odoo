@@ -73,7 +73,8 @@
       }
       input[type="text"],
       input[type="password"],
-      input[type="number"] {
+      input[type="number"],
+      select {
         width: 100%;
         padding: 0.3rem;
         box-sizing: border-box;
@@ -162,6 +163,39 @@
       ></span>
       <br /><br />
       <button id="save" type="submit" disabled>Save</button>
+    </form>
+
+    <hr />
+
+    <h3>Helpdesk Ticket Import</h3>
+
+    <form id="ticketSettings">
+      <label>
+        Default Helpdesk Team:<br />
+        <select id="helpdeskTeamId">
+          <option value="">— not set —</option>
+        </select>
+      </label>
+      <p class="info">
+        Used when importing an email as a Ticket. If you have more than one
+        Helpdesk team, Odoo needs to know which one to assign the ticket to.
+        Leave "not set" if you only have one team.
+      </p>
+      <button id="loadTeams" type="button">Load teams from Odoo</button>
+      <span
+        id="loadTeamsStatus"
+        role="status"
+        aria-live="polite"
+        style="margin-left: 0.5rem; font-size: 0.9em"
+      ></span>
+      <br /><br />
+      <button id="saveTicket" type="button">Save</button>
+      <span
+        id="ticketStatus"
+        role="status"
+        aria-live="polite"
+        style="margin-left: 0.5rem; font-size: 0.9em"
+      ></span>
     </form>
 
     <hr />
