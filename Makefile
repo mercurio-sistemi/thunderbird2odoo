@@ -27,7 +27,7 @@ XPI_FILES := \
   $(ICON_DIR)
 
 # JS source files to syntax-check
-JS_FILES := background.js displayScript.js dialog.js options.js lib/mailCache.js lib/odooClient.js lib/odooMailUpload.js
+JS_FILES := background.js displayScript.js dialog.js options.js lib/mailCache.js lib/odooClient.js lib/odooMailUpload.js lib/importChoice.js
 
 .PHONY: all check check-js test generate-icons xpi clean clean-icons distclean
 

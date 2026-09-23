@@ -2,6 +2,40 @@ var _lastAction = null;
 var _ignoreNextCacheChange = false;
 var _pendingAction = false;
 var _container = null;
+var _cachedTeams = [];
+var _cachedDefaultTeamId = null;
+var _cachedDefaultImportAs = null;
+
+// Same rules as getDefaultImportModel() in lib/importChoice.js (this display
+// script cannot import ES modules): Ticket only once Helpdesk teams were
+// loaded, otherwise Opportunity as before.
+function getDefaultImportAs() {
+  var available = _cachedTeams.length > 0;
+  if (
+    _cachedDefaultImportAs === "crm.lead" ||
+    _cachedDefaultImportAs === "generic"
+  )
+    return _cachedDefaultImportAs;
+  return available ? "helpdesk.ticket" : "crm.lead";
+}
+
+function refreshTeamsCache() {
+  return messenger.storage.local
+    .get(["helpdeskTeams", "helpdeskTeamId", "defaultImportAs"])
+    .then(function (stored) {
+      _cachedTeams = Array.isArray(stored.helpdeskTeams)
+        ? stored.helpdeskTeams
+        : [];
+      _cachedDefaultTeamId =
+        stored.helpdeskTeamId !== undefined ? stored.helpdeskTeamId : null;
+      _cachedDefaultImportAs = stored.defaultImportAs || null;
+    })
+    .catch(function () {
+      _cachedTeams = [];
+      _cachedDefaultTeamId = null;
+      _cachedDefaultImportAs = null;
+    });
+}
 
 function getContainer() {
   if (!_container) {
@@ -132,12 +166,87 @@ function renderBar(d, container) {
       btnStyle,
     ),
   );
-  if (d.status === "parent_found" || d.status === "not_found") {
+  if (d.status === "parent_found") {
     btnRow.appendChild(
       createButton(
         "Add",
         function () {
           doAction("addMessage");
+        },
+        null,
+        btnStyle,
+      ),
+    );
+  } else if (d.status === "not_found") {
+    // No predecessor either: let the user pick the destination (Ticket +
+    // team / Opportunity / Generic) right here instead of a popup dialog.
+    var selectStyle =
+      "font:caption;padding:2px 4px;border:1px solid ButtonBorder;border-radius:3px";
+
+    var importAsSelect = document.createElement("select");
+    importAsSelect.style.cssText = selectStyle;
+    var importTypes = [
+      { value: "crm.lead", label: "Opportunity (CRM Lead)" },
+      { value: "generic", label: "Generic" },
+    ];
+    if (_cachedTeams.length > 0) {
+      importTypes.unshift({
+        value: "helpdesk.ticket",
+        label: "Ticket (Helpdesk)",
+      });
+    }
+    importTypes.forEach(function (o) {
+      var opt = document.createElement("option");
+      opt.value = o.value;
+      opt.textContent = o.label;
+      importAsSelect.appendChild(opt);
+    });
+    importAsSelect.value = getDefaultImportAs();
+
+    var teamSelect = null;
+    if (_cachedTeams.length > 1) {
+      teamSelect = document.createElement("select");
+      teamSelect.style.cssText = selectStyle;
+      var hasDefaultTeam = _cachedTeams.some(function (t) {
+        return String(t.id) === String(_cachedDefaultTeamId);
+      });
+      if (!hasDefaultTeam) {
+        // No (valid) default team configured: let Odoo pick its default.
+        var noTeamOpt = document.createElement("option");
+        noTeamOpt.value = "";
+        noTeamOpt.textContent = "Default team";
+        teamSelect.appendChild(noTeamOpt);
+      }
+      _cachedTeams.forEach(function (t) {
+        var opt = document.createElement("option");
+        opt.value = String(t.id);
+        opt.textContent = t.name;
+        teamSelect.appendChild(opt);
+      });
+      teamSelect.value = hasDefaultTeam ? String(_cachedDefaultTeamId) : "";
+      var syncTeamVisibility = function () {
+        teamSelect.style.display =
+          importAsSelect.value === "helpdesk.ticket" ? "" : "none";
+      };
+      importAsSelect.addEventListener("change", syncTeamVisibility);
+      syncTeamVisibility();
+    }
+
+    btnRow.appendChild(importAsSelect);
+    if (teamSelect) btnRow.appendChild(teamSelect);
+    btnRow.appendChild(
+      createButton(
+        "Add",
+        function () {
+          var choice = { model: importAsSelect.value };
+          if (
+            choice.model === "helpdesk.ticket" &&
+            teamSelect &&
+            teamSelect.value
+          ) {
+            choice.teamId = teamSelect.value;
+          }
+          doAction("addMessage", choice);
         },
         null,
         btnStyle,
@@ -151,11 +260,13 @@ function renderBar(d, container) {
   return b;
 }
 
-function doAction(action) {
+function doAction(action, choice) {
   if (_pendingAction) return;
   _pendingAction = true;
+  var payload = { action: action };
+  if (choice) payload.choice = choice;
   messenger.runtime
-    .sendMessage({ action: action })
+    .sendMessage(payload)
     .then(
       function (r) {
         _pendingAction = false;
@@ -216,6 +327,14 @@ messenger.storage.onChanged.addListener(function (changes, area) {
     }
     refreshBar();
   }
+  if (
+    area === "local" &&
+    ["helpdeskTeams", "helpdeskTeamId", "defaultImportAs"].some(function (k) {
+      return k in changes;
+    })
+  ) {
+    refreshTeamsCache().then(refreshBar);
+  }
 });
 
-refreshBar();
+refreshTeamsCache().then(refreshBar);

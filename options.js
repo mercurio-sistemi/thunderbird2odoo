@@ -15,6 +15,13 @@ const countBtn = document.getElementById("countBtn");
 const countResult = document.getElementById("countResult");
 const cacheInfo = document.getElementById("cacheInfo");
 
+const defaultImportAsInput = document.getElementById("defaultImportAs");
+const helpdeskTeamIdInput = document.getElementById("helpdeskTeamId");
+const loadTeamsBtn = document.getElementById("loadTeams");
+const loadTeamsStatus = document.getElementById("loadTeamsStatus");
+const saveTicketBtn = document.getElementById("saveTicket");
+const ticketStatus = document.getElementById("ticketStatus");
+
 const syncSettingsForm = document.getElementById("syncSettings");
 const syncFields = [
   maxAgeInput,
@@ -24,6 +31,10 @@ const syncFields = [
   syncNowBtn,
   countBtn,
   syncSettingsForm,
+  defaultImportAsInput,
+  helpdeskTeamIdInput,
+  loadTeamsBtn,
+  saveTicketBtn,
 ];
 function setSyncEnabled(enabled) {
   syncFields.forEach((el) => {
@@ -59,12 +70,23 @@ function invalidate() {
     "apikey",
     "maxAgeDays",
     "syncLimit",
+    "helpdeskTeamId",
+    "helpdeskTeams",
+    "defaultImportAs",
   ]);
   if (stored.url) urlInput.value = stored.url;
   if (stored.db) dbInput.value = stored.db;
   if (stored.apikey) apiKeyInput.value = stored.apikey;
   if (stored.maxAgeDays !== undefined) maxAgeInput.value = stored.maxAgeDays;
   if (stored.syncLimit !== undefined) syncLimitInput.value = stored.syncLimit;
+  if (stored.defaultImportAs)
+    defaultImportAsInput.value = stored.defaultImportAs;
+  // Show the cached teams (and the saved team) right away, so saving before
+  // the teams are (re)loaded from Odoo keeps the saved team.
+  fillTeamSelect(
+    Array.isArray(stored.helpdeskTeams) ? stored.helpdeskTeams : [],
+    stored.helpdeskTeamId,
+  );
   invalidate();
   if (stored.url && stored.apikey) setSyncEnabled(true);
   refreshCacheInfo();
@@ -131,6 +153,83 @@ clearCacheBtn.addEventListener("click", async () => {
     ? "Odoo cache cleared"
     : "Failed to clear cache";
   refreshCacheInfo();
+});
+
+/**
+ * Fills the "Default Helpdesk Team" select. A selected team that is not in
+ * the list (teams not loaded yet, or removed in Odoo) is kept as an extra
+ * option, so saving the form never drops it silently.
+ */
+function fillTeamSelect(teams, selected) {
+  const wanted =
+    selected !== undefined && selected !== null && selected !== ""
+      ? String(selected)
+      : "";
+  helpdeskTeamIdInput.innerHTML = "";
+  const noneOpt = document.createElement("option");
+  noneOpt.value = "";
+  noneOpt.textContent = "— not set —";
+  helpdeskTeamIdInput.appendChild(noneOpt);
+  for (const team of teams) {
+    const opt = document.createElement("option");
+    opt.value = String(team.id);
+    opt.textContent = team.name;
+    helpdeskTeamIdInput.appendChild(opt);
+  }
+  if (wanted && !teams.some((t) => String(t.id) === wanted)) {
+    const opt = document.createElement("option");
+    opt.value = wanted;
+    opt.textContent = "Team #" + wanted + " (not in the loaded teams)";
+    helpdeskTeamIdInput.appendChild(opt);
+  }
+  helpdeskTeamIdInput.value = wanted;
+}
+
+async function loadTeams() {
+  const wanted = helpdeskTeamIdInput.value;
+  loadTeamsStatus.textContent = "Loading…";
+  loadTeamsStatus.style.color = "";
+  loadTeamsBtn.disabled = true;
+  try {
+    const result = await browser.runtime.sendMessage({
+      action: "listHelpdeskTeams",
+    });
+    if (!result?.ok) throw new Error(result?.error || "unknown error");
+    fillTeamSelect(result.teams, wanted);
+    // Cached so the right-click menu and the status bar "Add" control can
+    // offer one entry per team without calling Odoo on every click.
+    await browser.storage.local.set({ helpdeskTeams: result.teams });
+    loadTeamsStatus.textContent =
+      result.teams.length + (result.teams.length === 1 ? " team" : " teams");
+    loadTeamsStatus.style.color = "green";
+  } catch (err) {
+    loadTeamsStatus.textContent = "Failed: " + err.message;
+    loadTeamsStatus.style.color = "#c0392b";
+  } finally {
+    loadTeamsBtn.disabled = false;
+  }
+}
+
+loadTeamsBtn.addEventListener("click", () => loadTeams());
+
+saveTicketBtn.addEventListener("click", async () => {
+  try {
+    const teamId = helpdeskTeamIdInput.value;
+    const importAs = defaultImportAsInput.value;
+    const toRemove = [];
+    const toSet = {};
+    if (teamId === "") toRemove.push("helpdeskTeamId");
+    else toSet.helpdeskTeamId = parseInt(teamId, 10);
+    if (importAs === "") toRemove.push("defaultImportAs");
+    else toSet.defaultImportAs = importAs;
+    if (toRemove.length) await browser.storage.local.remove(toRemove);
+    await browser.storage.local.set(toSet);
+    ticketStatus.textContent = "Saved";
+    ticketStatus.style.color = "green";
+  } catch (err) {
+    ticketStatus.textContent = "Failed: " + err.message;
+    ticketStatus.style.color = "#c0392b";
+  }
 });
 
 document.getElementById("settings").addEventListener("submit", async (e) => {

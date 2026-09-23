@@ -12,6 +12,7 @@ import {
   searchMailMessages,
   countMailMessages,
   unifyMessageId,
+  listHelpdeskTeams,
 } from "./lib/odooClient.js";
 import { uploadMail, decodeRawMail } from "./lib/odooMailUpload.js";
 import {
@@ -24,16 +25,35 @@ import {
   setLastSync,
   CACHE_KEY,
 } from "./lib/mailCache.js";
+import {
+  MODEL_TICKET,
+  MODEL_LEAD,
+  MODEL_GENERIC,
+  getCachedTeams,
+  resolveImportModel,
+  resolveTeamId,
+} from "./lib/importChoice.js";
 
 const MENU_ID_CONNECTOR = "odoo-connector";
-const MENU_ID_IMPORT = "odoo-import";
+const MENU_ID_IMPORT_TICKET = "odoo-import-ticket";
+const MENU_ID_IMPORT_OPPORTUNITY = "odoo-import-opportunity";
+const MENU_ID_IMPORT_GENERIC = "odoo-import-generic";
 const MENU_ID_VERIFY = "odoo-verify";
 const MENU_ID_SYNC = "odoo-sync";
+const TEAM_MENU_PREFIX = "odoo-import-ticket-team-";
+
+const IMPORT_MENU_IDS = [
+  MENU_ID_IMPORT_TICKET,
+  MENU_ID_IMPORT_OPPORTUNITY,
+  MENU_ID_IMPORT_GENERIC,
+];
 
 const menuIds = new Set();
 menuIds
   .add(MENU_ID_CONNECTOR)
-  .add(MENU_ID_IMPORT)
+  .add(MENU_ID_IMPORT_TICKET)
+  .add(MENU_ID_IMPORT_OPPORTUNITY)
+  .add(MENU_ID_IMPORT_GENERIC)
   .add(MENU_ID_VERIFY)
   .add(MENU_ID_SYNC);
 
@@ -197,13 +217,33 @@ async function showResult(prefix, r, cfg, sticky = false) {
 let _cachedConfig = null;
 
 browser.storage.onChanged.addListener((changes, area) => {
-  if (area === "local" && ["url", "db", "apikey"].some((k) => k in changes))
+  if (
+    area === "local" &&
+    [
+      "url",
+      "db",
+      "apikey",
+      "helpdeskTeamId",
+      "helpdeskTeams",
+      "defaultImportAs",
+    ].some((k) => k in changes)
+  )
     _cachedConfig = null;
+  if (area === "local" && "helpdeskTeams" in changes) {
+    refreshMenus().catch((err) => console.warn("refreshMenus failed:", err));
+  }
 });
 
 async function get_config() {
   if (_cachedConfig) return _cachedConfig;
-  _cachedConfig = await browser.storage.local.get(["url", "db", "apikey"]);
+  _cachedConfig = await browser.storage.local.get([
+    "url",
+    "db",
+    "apikey",
+    "helpdeskTeamId",
+    "helpdeskTeams",
+    "defaultImportAs",
+  ]);
   return _cachedConfig;
 }
 
@@ -230,29 +270,18 @@ async function findAndCache(cfg, id) {
   return result;
 }
 
-async function setup() {
+/**
+ * (Re)builds the "Odoo Email Connector" right-click submenu.
+ *
+ * The Helpdesk team choice lives directly in the menu tree (one entry per
+ * team, cached from the Options page) instead of a popup dialog, so a single
+ * click imports the email with the right model/team already picked. The
+ * Ticket entry is only shown once Helpdesk teams were loaded from Odoo.
+ *
+ * @param {Array<{id:number,name:string}>} teams cached Helpdesk teams
+ */
+function buildMenus(teams) {
   browser.menus.removeAll();
-
-  const cfg = await get_config();
-
-  if (!cfg.url || !cfg.apikey) {
-    return;
-  }
-
-  const hasPermission = await browser.permissions.contains({
-    origins: ["*://*/*"],
-  });
-  if (hasPermission) {
-    try {
-      await testOdooConnection(cfg);
-    } catch (err) {
-      console.warn("setup: connection test failed, menus still created:", err);
-    }
-  } else {
-    console.debug(
-      "setup: host permission not granted yet, skipping connection test",
-    );
-  }
 
   const icon = {
     16: "icons/odoo-16.png",
@@ -269,9 +298,38 @@ async function setup() {
     icons: icon,
   });
 
+  if (teams.length > 0) {
+    browser.menus.create({
+      id: MENU_ID_IMPORT_TICKET,
+      title: "Import as Ticket (Helpdesk)",
+      parentId: MENU_ID_CONNECTOR,
+      contexts: ["message_list"],
+      icons: icon,
+    });
+    if (teams.length > 1) {
+      for (const team of teams) {
+        browser.menus.create({
+          id: TEAM_MENU_PREFIX + team.id,
+          // "&" marks the access key in menu titles; "&&" is a literal "&".
+          title: String(team.name).replace(/&/g, "&&"),
+          parentId: MENU_ID_IMPORT_TICKET,
+          contexts: ["message_list"],
+        });
+      }
+    }
+  }
+
   browser.menus.create({
-    id: MENU_ID_IMPORT,
-    title: "Import this email",
+    id: MENU_ID_IMPORT_OPPORTUNITY,
+    title: "Import as Opportunity (CRM Lead)",
+    parentId: MENU_ID_CONNECTOR,
+    contexts: ["message_list"],
+    icons: icon,
+  });
+
+  browser.menus.create({
+    id: MENU_ID_IMPORT_GENERIC,
+    title: "Import as Generic",
     parentId: MENU_ID_CONNECTOR,
     contexts: ["message_list"],
     icons: icon,
@@ -294,11 +352,50 @@ async function setup() {
   });
 }
 
+/**
+ * Rebuilds the menus from the stored configuration; removes them while the
+ * add-on is not configured.
+ *
+ * @returns {Promise<boolean>} whether the add-on is configured
+ */
+async function refreshMenus() {
+  const cfg = await get_config();
+  if (!cfg.url || !cfg.apikey) {
+    browser.menus.removeAll();
+    return false;
+  }
+  buildMenus(getCachedTeams(cfg));
+  return true;
+}
+
+async function setup() {
+  if (!(await refreshMenus())) return;
+  const cfg = await get_config();
+
+  const hasPermission = await browser.permissions.contains({
+    origins: ["*://*/*"],
+  });
+  if (hasPermission) {
+    try {
+      await testOdooConnection(cfg);
+    } catch (err) {
+      console.warn("setup: connection test failed, menus still created:", err);
+    }
+  } else {
+    console.debug(
+      "setup: host permission not granted yet, skipping connection test",
+    );
+  }
+}
+
 browser.menus.onShown.addListener((info) => {
   if (menuIds.size === 0) return;
   const selectedCount = info.selectedMessages?.messages?.length ?? 0;
   browser.menus.update(MENU_ID_CONNECTOR, { visible: selectedCount >= 1 });
-  browser.menus.update(MENU_ID_IMPORT, { visible: selectedCount === 1 });
+  for (const id of IMPORT_MENU_IDS) {
+    // The Ticket entry does not exist without Helpdesk; ignore that error.
+    browser.menus.update(id, { visible: selectedCount === 1 }).catch(() => {});
+  }
   browser.menus.update(MENU_ID_VERIFY, {
     visible: selectedCount >= 1,
     title:
@@ -392,7 +489,7 @@ async function showDialog(title, message, buttons = []) {
   });
 }
 
-async function importMessageById(tbMessageId) {
+async function importMessageById(tbMessageId, choice = {}) {
   const hasPermission = await browser.permissions.contains({
     origins: ["*://*/*"],
   });
@@ -438,30 +535,32 @@ async function importMessageById(tbMessageId) {
     return mid;
   }
 
-  // Step 3: No predecessor found
+  // Step 3: No predecessor found — the model (and, for tickets, the team)
+  // is chosen up front by the caller (right-click submenu or the status
+  // bar's "Add" control), not through a popup.
   await cacheNotFoundResult(mid);
-  const btnIdx = await showDialog(
-    "Odoo Email Connector",
-    "This email and its predecessor are not in Odoo. How do you want to import it?",
-    [
-      { title: "As Opportunity (CRM Lead)", value: 0 },
-      {
-        title: "Generic",
-        value: 1,
-        tooltip:
-          "Might fail on Odoo 19 without Lost Messages module, see https://github.com/joergsteffens/thunderbird2odoo",
-      },
-    ],
-  );
-  if (btnIdx === 0) {
+
+  const model = resolveImportModel(choice, cfg);
+  if (model === MODEL_TICKET) {
+    const teamId = resolveTeamId(choice, cfg);
+    const customValues = teamId ? { team_id: teamId } : null;
     await uploadAndShowResult(
       cfg,
-      "crm.lead",
+      MODEL_TICKET,
+      "Email imported as Ticket",
+      decoded,
+      mid,
+      customValues,
+    );
+  } else if (model === MODEL_LEAD) {
+    await uploadAndShowResult(
+      cfg,
+      MODEL_LEAD,
       "Email imported as Opportunity (CRM Lead)",
       decoded,
       mid,
     );
-  } else if (btnIdx === 1) {
+  } else {
     await uploadAndShowResult(cfg, false, "Email imported", decoded, mid);
   }
   return mid;
@@ -492,8 +591,15 @@ async function verifyMessageById(tbMessageId) {
   return await cacheNotFoundResult(mid);
 }
 
-async function uploadAndShowResult(cfg, model, prefix, decoded, messageId) {
-  const rawResult = await uploadMail(cfg, decoded, model);
+async function uploadAndShowResult(
+  cfg,
+  model,
+  prefix,
+  decoded,
+  messageId,
+  customValues = null,
+) {
+  const rawResult = await uploadMail(cfg, decoded, model, customValues);
   console.debug("uploadAndShowResult: rawResult=" + JSON.stringify(rawResult));
 
   if (rawResult) {
@@ -545,11 +651,11 @@ async function uploadAndShowResult(cfg, model, prefix, decoded, messageId) {
   }
 }
 
-async function handleOdooImporter(info) {
+async function handleOdooImporter(info, choice) {
   try {
     const message = info.selectedMessages?.messages?.[0];
     if (!message) throw new Error("Select exactly one email");
-    await importMessageById(message.id);
+    await importMessageById(message.id, choice);
   } catch (err) {
     await showDialog("Odoo – Error", err.message);
   }
@@ -587,8 +693,19 @@ async function verifyMessages(tbMessageIds) {
 }
 
 browser.menus.onClicked.addListener(async (info, tab) => {
-  if (info.menuItemId === MENU_ID_IMPORT) {
-    await handleOdooImporter(info);
+  const menuItemId = info.menuItemId;
+  if (menuItemId === MENU_ID_IMPORT_TICKET) {
+    await handleOdooImporter(info, { model: MODEL_TICKET });
+  } else if (
+    typeof menuItemId === "string" &&
+    menuItemId.startsWith(TEAM_MENU_PREFIX)
+  ) {
+    const teamId = menuItemId.slice(TEAM_MENU_PREFIX.length);
+    await handleOdooImporter(info, { model: MODEL_TICKET, teamId });
+  } else if (menuItemId === MENU_ID_IMPORT_OPPORTUNITY) {
+    await handleOdooImporter(info, { model: MODEL_LEAD });
+  } else if (menuItemId === MENU_ID_IMPORT_GENERIC) {
+    await handleOdooImporter(info, { model: MODEL_GENERIC });
   } else if (info.menuItemId === MENU_ID_VERIFY) {
     const messages = info.selectedMessages?.messages;
     if (!messages?.length) return;
@@ -771,7 +888,7 @@ async function handleAddMessage(msg, sender) {
   const cfg = await requireConfig();
   if (!cfg) return { ok: false, error: "Not configured" };
   try {
-    const mid = await importMessageById(msgId);
+    const mid = await importMessageById(msgId, msg.choice);
     if (!mid) return null;
     const entry = await getCachedResult(mid);
     if (!entry) return null;
@@ -794,6 +911,17 @@ async function handleCountOdooMessages(msg) {
   try {
     const count = await countMailMessages(cfg, since);
     return { ok: true, count };
+  } catch (err) {
+    return errorResult(err);
+  }
+}
+
+async function handleListHelpdeskTeams() {
+  const cfg = await requireConfig();
+  if (!cfg) return { ok: false, error: "Not configured" };
+  try {
+    const teams = await listHelpdeskTeams(cfg);
+    return { ok: true, teams };
   } catch (err) {
     return errorResult(err);
   }
@@ -822,6 +950,9 @@ browser.runtime.onMessage.addListener((msg, sender) => {
 
       case "countOdooMessages":
         return handleCountOdooMessages(msg);
+
+      case "listHelpdeskTeams":
+        return handleListHelpdeskTeams();
 
       case "clearCache":
         return clearAllCache().then(() => ({ ok: true }));
