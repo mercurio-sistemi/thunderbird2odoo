@@ -171,6 +171,17 @@
 
     <form id="ticketSettings">
       <label>
+        Default Import Type:<br />
+        <select id="defaultImportAs">
+          <option value="helpdesk.ticket">Ticket (Helpdesk)</option>
+          <option value="crm.lead">Opportunity (CRM Lead)</option>
+        </select>
+      </label>
+      <p class="info">
+        Preselected type in the status bar's "Import as" control when a new
+        email has no match in Odoo.
+      </p>
+      <label>
         Default Helpdesk Team:<br />
         <select id="helpdeskTeamId">
           <option value="">— not set —</option>

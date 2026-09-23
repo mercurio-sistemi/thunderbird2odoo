@@ -15,6 +15,7 @@ const countBtn = document.getElementById("countBtn");
 const countResult = document.getElementById("countResult");
 const cacheInfo = document.getElementById("cacheInfo");
 
+const defaultImportAsInput = document.getElementById("defaultImportAs");
 const helpdeskTeamIdInput = document.getElementById("helpdeskTeamId");
 const loadTeamsBtn = document.getElementById("loadTeams");
 const loadTeamsStatus = document.getElementById("loadTeamsStatus");
@@ -30,6 +31,7 @@ const syncFields = [
   syncNowBtn,
   countBtn,
   syncSettingsForm,
+  defaultImportAsInput,
   helpdeskTeamIdInput,
   loadTeamsBtn,
   saveTicketBtn,
@@ -69,12 +71,15 @@ function invalidate() {
     "maxAgeDays",
     "syncLimit",
     "helpdeskTeamId",
+    "defaultImportAs",
   ]);
   if (stored.url) urlInput.value = stored.url;
   if (stored.db) dbInput.value = stored.db;
   if (stored.apikey) apiKeyInput.value = stored.apikey;
   if (stored.maxAgeDays !== undefined) maxAgeInput.value = stored.maxAgeDays;
   if (stored.syncLimit !== undefined) syncLimitInput.value = stored.syncLimit;
+  if (stored.defaultImportAs)
+    defaultImportAsInput.value = stored.defaultImportAs;
   invalidate();
   if (stored.url && stored.apikey) {
     setSyncEnabled(true);
@@ -193,6 +198,9 @@ saveTicketBtn.addEventListener("click", async () => {
   } else {
     await browser.storage.local.set({ helpdeskTeamId: parseInt(raw, 10) });
   }
+  await browser.storage.local.set({
+    defaultImportAs: defaultImportAsInput.value,
+  });
   ticketStatus.textContent = "Saved";
   ticketStatus.style.color = "green";
 });

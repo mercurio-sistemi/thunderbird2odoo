@@ -3,17 +3,24 @@ var _ignoreNextCacheChange = false;
 var _pendingAction = false;
 var _container = null;
 var _cachedTeams = [];
+var _cachedDefaultTeamId = null;
+var _cachedDefaultImportAs = "helpdesk.ticket";
 
 function refreshTeamsCache() {
   return messenger.storage.local
-    .get(["helpdeskTeams"])
+    .get(["helpdeskTeams", "helpdeskTeamId", "defaultImportAs"])
     .then(function (stored) {
       _cachedTeams = Array.isArray(stored.helpdeskTeams)
         ? stored.helpdeskTeams
         : [];
+      _cachedDefaultTeamId =
+        stored.helpdeskTeamId !== undefined ? stored.helpdeskTeamId : null;
+      _cachedDefaultImportAs = stored.defaultImportAs || "helpdesk.ticket";
     })
     .catch(function () {
       _cachedTeams = [];
+      _cachedDefaultTeamId = null;
+      _cachedDefaultImportAs = "helpdesk.ticket";
     });
 }
 
@@ -175,7 +182,7 @@ function renderBar(d, container) {
       opt.textContent = o.label;
       importAsSelect.appendChild(opt);
     });
-    importAsSelect.value = "helpdesk.ticket";
+    importAsSelect.value = _cachedDefaultImportAs;
 
     var teamSelect = null;
     if (_cachedTeams.length > 1) {
@@ -187,6 +194,9 @@ function renderBar(d, container) {
         opt.textContent = t.name;
         teamSelect.appendChild(opt);
       });
+      if (_cachedDefaultTeamId != null) {
+        teamSelect.value = String(_cachedDefaultTeamId);
+      }
       var syncTeamVisibility = function () {
         teamSelect.style.display =
           importAsSelect.value === "helpdesk.ticket" ? "" : "none";
@@ -286,7 +296,12 @@ messenger.storage.onChanged.addListener(function (changes, area) {
     }
     refreshBar();
   }
-  if (area === "local" && changes.helpdeskTeams) {
+  if (
+    area === "local" &&
+    ["helpdeskTeams", "helpdeskTeamId", "defaultImportAs"].some(function (k) {
+      return k in changes;
+    })
+  ) {
     refreshTeamsCache().then(refreshBar);
   }
 });

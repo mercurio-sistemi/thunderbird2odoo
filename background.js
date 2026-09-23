@@ -211,9 +211,14 @@ let _cachedConfig = null;
 browser.storage.onChanged.addListener((changes, area) => {
   if (
     area === "local" &&
-    ["url", "db", "apikey", "helpdeskTeamId", "helpdeskTeams"].some(
-      (k) => k in changes,
-    )
+    [
+      "url",
+      "db",
+      "apikey",
+      "helpdeskTeamId",
+      "helpdeskTeams",
+      "defaultImportAs",
+    ].some((k) => k in changes)
   )
     _cachedConfig = null;
   if (area === "local" && "helpdeskTeams" in changes) {
@@ -233,6 +238,7 @@ async function get_config() {
     "apikey",
     "helpdeskTeamId",
     "helpdeskTeams",
+    "defaultImportAs",
   ]);
   return _cachedConfig;
 }
@@ -512,7 +518,7 @@ async function importMessageById(tbMessageId, choice = {}) {
   // bar's "Add" control), not through a popup.
   await cacheNotFoundResult(mid);
 
-  const model = choice.model ?? "helpdesk.ticket";
+  const model = choice.model ?? cfg.defaultImportAs ?? "helpdesk.ticket";
   if (model === "helpdesk.ticket") {
     const teams = Array.isArray(cfg.helpdeskTeams) ? cfg.helpdeskTeams : [];
     const teamId =
