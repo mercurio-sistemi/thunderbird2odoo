@@ -135,17 +135,27 @@ function getUrl(entry) {
 }
 
 async function findPredecessor(cfg, pids) {
+  if (pids.length === 0) return null;
+  // Always ask Odoo instead of trusting cached "found" entries: the parent
+  // record may have been deleted since it was cached.
+  const found = await findMails(cfg, pids);
+  let result = null;
   for (const pid of pids) {
-    const cached = await getCachedResult(pid);
-    if (cached?.status === "found") {
-      return { messageId: pid, entry: cached };
-    }
-    const found = await findAndCache(cfg, pid);
-    if (found.status === "found") {
-      return { messageId: pid, entry: found };
+    const r = found[pid];
+    if (r) {
+      const entry = await cacheFoundResult(
+        pid,
+        r.model,
+        r.resId,
+        r.odooMessageId,
+      );
+      if (!result) result = { messageId: pid, entry };
+    } else if ((await getCachedResult(pid))?.status === "found") {
+      // Stale entry: the message no longer exists in Odoo.
+      await cacheNotFoundResult(pid);
     }
   }
-  return null;
+  return result;
 }
 
 function notify(title, message, sticky = false) {
