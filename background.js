@@ -27,14 +27,25 @@ import {
 } from "./lib/mailCache.js";
 
 const MENU_ID_CONNECTOR = "odoo-connector";
-const MENU_ID_IMPORT = "odoo-import";
+const MENU_ID_IMPORT_TICKET = "odoo-import-ticket";
+const MENU_ID_IMPORT_OPPORTUNITY = "odoo-import-opportunity";
+const MENU_ID_IMPORT_GENERIC = "odoo-import-generic";
 const MENU_ID_VERIFY = "odoo-verify";
 const MENU_ID_SYNC = "odoo-sync";
+const TEAM_MENU_PREFIX = "odoo-import-ticket-team-";
+
+const IMPORT_MENU_IDS = [
+  MENU_ID_IMPORT_TICKET,
+  MENU_ID_IMPORT_OPPORTUNITY,
+  MENU_ID_IMPORT_GENERIC,
+];
 
 const menuIds = new Set();
 menuIds
   .add(MENU_ID_CONNECTOR)
-  .add(MENU_ID_IMPORT)
+  .add(MENU_ID_IMPORT_TICKET)
+  .add(MENU_ID_IMPORT_OPPORTUNITY)
+  .add(MENU_ID_IMPORT_GENERIC)
   .add(MENU_ID_VERIFY)
   .add(MENU_ID_SYNC);
 
@@ -200,9 +211,18 @@ let _cachedConfig = null;
 browser.storage.onChanged.addListener((changes, area) => {
   if (
     area === "local" &&
-    ["url", "db", "apikey", "helpdeskTeamId"].some((k) => k in changes)
+    ["url", "db", "apikey", "helpdeskTeamId", "helpdeskTeams"].some(
+      (k) => k in changes,
+    )
   )
     _cachedConfig = null;
+  if (area === "local" && "helpdeskTeams" in changes) {
+    buildMenus(
+      Array.isArray(changes.helpdeskTeams.newValue)
+        ? changes.helpdeskTeams.newValue
+        : [],
+    );
+  }
 });
 
 async function get_config() {
@@ -212,6 +232,7 @@ async function get_config() {
     "db",
     "apikey",
     "helpdeskTeamId",
+    "helpdeskTeams",
   ]);
   return _cachedConfig;
 }
@@ -239,29 +260,17 @@ async function findAndCache(cfg, id) {
   return result;
 }
 
-async function setup() {
+/**
+ * (Re)builds the "Odoo Email Connector" right-click submenu.
+ *
+ * The Helpdesk team choice lives directly in the menu tree (one entry per
+ * team, cached from the Options page) instead of a popup dialog, so a single
+ * click imports the email with the right model/team already picked.
+ *
+ * @param {Array<{id:number,name:string}>} teams cached Helpdesk teams
+ */
+function buildMenus(teams) {
   browser.menus.removeAll();
-
-  const cfg = await get_config();
-
-  if (!cfg.url || !cfg.apikey) {
-    return;
-  }
-
-  const hasPermission = await browser.permissions.contains({
-    origins: ["*://*/*"],
-  });
-  if (hasPermission) {
-    try {
-      await testOdooConnection(cfg);
-    } catch (err) {
-      console.warn("setup: connection test failed, menus still created:", err);
-    }
-  } else {
-    console.debug(
-      "setup: host permission not granted yet, skipping connection test",
-    );
-  }
 
   const icon = {
     16: "icons/odoo-16.png",
@@ -279,11 +288,34 @@ async function setup() {
   });
 
   browser.menus.create({
-    id: MENU_ID_IMPORT,
-    title: "Import this email",
+    id: MENU_ID_IMPORT_TICKET,
+    title: "Import as Ticket (Helpdesk)",
     parentId: MENU_ID_CONNECTOR,
     contexts: ["message_list"],
-    icons: icon,
+  });
+  if (teams.length > 1) {
+    for (const team of teams) {
+      browser.menus.create({
+        id: TEAM_MENU_PREFIX + team.id,
+        title: team.name,
+        parentId: MENU_ID_IMPORT_TICKET,
+        contexts: ["message_list"],
+      });
+    }
+  }
+
+  browser.menus.create({
+    id: MENU_ID_IMPORT_OPPORTUNITY,
+    title: "Import as Opportunity (CRM Lead)",
+    parentId: MENU_ID_CONNECTOR,
+    contexts: ["message_list"],
+  });
+
+  browser.menus.create({
+    id: MENU_ID_IMPORT_GENERIC,
+    title: "Import as Generic",
+    parentId: MENU_ID_CONNECTOR,
+    contexts: ["message_list"],
   });
 
   browser.menus.create({
@@ -303,11 +335,39 @@ async function setup() {
   });
 }
 
+async function setup() {
+  const cfg = await get_config();
+
+  if (!cfg.url || !cfg.apikey) {
+    browser.menus.removeAll();
+    return;
+  }
+
+  const hasPermission = await browser.permissions.contains({
+    origins: ["*://*/*"],
+  });
+  if (hasPermission) {
+    try {
+      await testOdooConnection(cfg);
+    } catch (err) {
+      console.warn("setup: connection test failed, menus still created:", err);
+    }
+  } else {
+    console.debug(
+      "setup: host permission not granted yet, skipping connection test",
+    );
+  }
+
+  buildMenus(Array.isArray(cfg.helpdeskTeams) ? cfg.helpdeskTeams : []);
+}
+
 browser.menus.onShown.addListener((info) => {
   if (menuIds.size === 0) return;
   const selectedCount = info.selectedMessages?.messages?.length ?? 0;
   browser.menus.update(MENU_ID_CONNECTOR, { visible: selectedCount >= 1 });
-  browser.menus.update(MENU_ID_IMPORT, { visible: selectedCount === 1 });
+  for (const id of IMPORT_MENU_IDS) {
+    browser.menus.update(id, { visible: selectedCount === 1 });
+  }
   browser.menus.update(MENU_ID_VERIFY, {
     visible: selectedCount >= 1,
     title:
@@ -363,20 +423,18 @@ async function getHeaders(messageId) {
   return full.headers;
 }
 
-async function showDialog(title, message, buttons = [], selects = null) {
-  const paramsObj = {
+async function showDialog(title, message, buttons = []) {
+  const params = new URLSearchParams({
     title,
     message,
     buttons: JSON.stringify(buttons),
-  };
-  if (selects) paramsObj.selects = JSON.stringify(selects);
-  const params = new URLSearchParams(paramsObj);
+  });
   const url = browser.runtime.getURL("dialog.html?" + params);
   const win = await browser.windows.create({
     url: url,
     type: "popup",
     width: 600,
-    height: 360 + (selects ? selects.length * 70 : 0),
+    height: 360,
   });
   let done = false;
   return new Promise((resolve) => {
@@ -403,7 +461,7 @@ async function showDialog(title, message, buttons = [], selects = null) {
   });
 }
 
-async function importMessageById(tbMessageId) {
+async function importMessageById(tbMessageId, choice = {}) {
   const hasPermission = await browser.permissions.contains({
     origins: ["*://*/*"],
   });
@@ -449,60 +507,17 @@ async function importMessageById(tbMessageId) {
     return mid;
   }
 
-  // Step 3: No predecessor found
+  // Step 3: No predecessor found — the model (and, for tickets, the team)
+  // is chosen up front by the caller (right-click submenu or the status
+  // bar's "Add" control), not through a popup.
   await cacheNotFoundResult(mid);
 
-  let teams = [];
-  try {
-    teams = await listHelpdeskTeams(cfg);
-  } catch (err) {
-    console.debug("importMessageById: could not load helpdesk teams:", err);
-  }
-
-  const selects = [
-    {
-      id: "importAs",
-      label: "Import as:",
-      options: [
-        { value: "helpdesk.ticket", label: "Ticket (Helpdesk)" },
-        { value: "crm.lead", label: "Opportunity (CRM Lead)" },
-        {
-          value: "generic",
-          label: "Generic",
-          title:
-            "Might fail on Odoo 19 without Lost Messages module, see https://github.com/joergsteffens/thunderbird2odoo",
-        },
-      ],
-      selected: "helpdesk.ticket",
-    },
-  ];
-  if (teams.length > 1) {
-    selects.push({
-      id: "team",
-      label: "Helpdesk team:",
-      options: teams.map((t) => ({ value: String(t.id), label: t.name })),
-      selected: String(cfg.helpdeskTeamId ?? teams[0].id),
-      showWhen: { id: "importAs", equals: "helpdesk.ticket" },
-    });
-  }
-
-  const dialogResult = await showDialog(
-    "Odoo Email Connector",
-    "This email and its predecessor are not in Odoo. How do you want to import it?",
-    [
-      { title: "Import", value: 0 },
-      { title: "Cancel", value: 1 },
-    ],
-    selects,
-  );
-
-  if (typeof dialogResult !== "object" || dialogResult.value !== 0) return mid; // cancelled
-
-  const importAs = dialogResult.selections?.importAs;
-  if (importAs === "helpdesk.ticket") {
+  const model = choice.model ?? "helpdesk.ticket";
+  if (model === "helpdesk.ticket") {
+    const teams = Array.isArray(cfg.helpdeskTeams) ? cfg.helpdeskTeams : [];
     const teamId =
-      teams.length > 1
-        ? parseInt(dialogResult.selections?.team, 10)
+      choice.teamId != null
+        ? parseInt(choice.teamId, 10)
         : (teams[0]?.id ?? cfg.helpdeskTeamId ?? null);
     const customValues =
       teamId && !Number.isNaN(teamId) ? { team_id: teamId } : null;
@@ -514,7 +529,7 @@ async function importMessageById(tbMessageId) {
       mid,
       customValues,
     );
-  } else if (importAs === "crm.lead") {
+  } else if (model === "crm.lead") {
     await uploadAndShowResult(
       cfg,
       "crm.lead",
@@ -613,11 +628,11 @@ async function uploadAndShowResult(
   }
 }
 
-async function handleOdooImporter(info) {
+async function handleOdooImporter(info, choice) {
   try {
     const message = info.selectedMessages?.messages?.[0];
     if (!message) throw new Error("Select exactly one email");
-    await importMessageById(message.id);
+    await importMessageById(message.id, choice);
   } catch (err) {
     await showDialog("Odoo – Error", err.message);
   }
@@ -655,8 +670,19 @@ async function verifyMessages(tbMessageIds) {
 }
 
 browser.menus.onClicked.addListener(async (info, tab) => {
-  if (info.menuItemId === MENU_ID_IMPORT) {
-    await handleOdooImporter(info);
+  const menuItemId = info.menuItemId;
+  if (menuItemId === MENU_ID_IMPORT_TICKET) {
+    await handleOdooImporter(info, { model: "helpdesk.ticket" });
+  } else if (
+    typeof menuItemId === "string" &&
+    menuItemId.startsWith(TEAM_MENU_PREFIX)
+  ) {
+    const teamId = menuItemId.slice(TEAM_MENU_PREFIX.length);
+    await handleOdooImporter(info, { model: "helpdesk.ticket", teamId });
+  } else if (menuItemId === MENU_ID_IMPORT_OPPORTUNITY) {
+    await handleOdooImporter(info, { model: "crm.lead" });
+  } else if (menuItemId === MENU_ID_IMPORT_GENERIC) {
+    await handleOdooImporter(info, { model: "generic" });
   } else if (info.menuItemId === MENU_ID_VERIFY) {
     const messages = info.selectedMessages?.messages;
     if (!messages?.length) return;
@@ -839,7 +865,7 @@ async function handleAddMessage(msg, sender) {
   const cfg = await requireConfig();
   if (!cfg) return { ok: false, error: "Not configured" };
   try {
-    const mid = await importMessageById(msgId);
+    const mid = await importMessageById(msgId, msg.choice);
     if (!mid) return null;
     const entry = await getCachedResult(mid);
     if (!entry) return null;

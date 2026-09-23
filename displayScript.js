@@ -2,6 +2,20 @@ var _lastAction = null;
 var _ignoreNextCacheChange = false;
 var _pendingAction = false;
 var _container = null;
+var _cachedTeams = [];
+
+function refreshTeamsCache() {
+  return messenger.storage.local
+    .get(["helpdeskTeams"])
+    .then(function (stored) {
+      _cachedTeams = Array.isArray(stored.helpdeskTeams)
+        ? stored.helpdeskTeams
+        : [];
+    })
+    .catch(function () {
+      _cachedTeams = [];
+    });
+}
 
 function getContainer() {
   if (!_container) {
@@ -132,12 +146,66 @@ function renderBar(d, container) {
       btnStyle,
     ),
   );
-  if (d.status === "parent_found" || d.status === "not_found") {
+  if (d.status === "parent_found") {
     btnRow.appendChild(
       createButton(
         "Add",
         function () {
           doAction("addMessage");
+        },
+        null,
+        btnStyle,
+      ),
+    );
+  } else if (d.status === "not_found") {
+    // No predecessor either: let the user pick the destination (Ticket +
+    // team / Opportunity / Generic) right here instead of a popup dialog.
+    var selectStyle =
+      "font:caption;padding:2px 4px;border:1px solid ButtonBorder;border-radius:3px";
+
+    var importAsSelect = document.createElement("select");
+    importAsSelect.style.cssText = selectStyle;
+    [
+      { value: "helpdesk.ticket", label: "Ticket (Helpdesk)" },
+      { value: "crm.lead", label: "Opportunity (CRM Lead)" },
+      { value: "generic", label: "Generic" },
+    ].forEach(function (o) {
+      var opt = document.createElement("option");
+      opt.value = o.value;
+      opt.textContent = o.label;
+      importAsSelect.appendChild(opt);
+    });
+    importAsSelect.value = "helpdesk.ticket";
+
+    var teamSelect = null;
+    if (_cachedTeams.length > 1) {
+      teamSelect = document.createElement("select");
+      teamSelect.style.cssText = selectStyle;
+      _cachedTeams.forEach(function (t) {
+        var opt = document.createElement("option");
+        opt.value = String(t.id);
+        opt.textContent = t.name;
+        teamSelect.appendChild(opt);
+      });
+      var syncTeamVisibility = function () {
+        teamSelect.style.display =
+          importAsSelect.value === "helpdesk.ticket" ? "" : "none";
+      };
+      importAsSelect.addEventListener("change", syncTeamVisibility);
+      syncTeamVisibility();
+    }
+
+    btnRow.appendChild(importAsSelect);
+    if (teamSelect) btnRow.appendChild(teamSelect);
+    btnRow.appendChild(
+      createButton(
+        "Add",
+        function () {
+          var choice = { model: importAsSelect.value };
+          if (choice.model === "helpdesk.ticket" && teamSelect) {
+            choice.teamId = teamSelect.value;
+          }
+          doAction("addMessage", choice);
         },
         null,
         btnStyle,
@@ -151,11 +219,13 @@ function renderBar(d, container) {
   return b;
 }
 
-function doAction(action) {
+function doAction(action, choice) {
   if (_pendingAction) return;
   _pendingAction = true;
+  var payload = { action: action };
+  if (choice) payload.choice = choice;
   messenger.runtime
-    .sendMessage({ action: action })
+    .sendMessage(payload)
     .then(
       function (r) {
         _pendingAction = false;
@@ -216,6 +286,9 @@ messenger.storage.onChanged.addListener(function (changes, area) {
     }
     refreshBar();
   }
+  if (area === "local" && changes.helpdeskTeams) {
+    refreshTeamsCache().then(refreshBar);
+  }
 });
 
-refreshBar();
+refreshTeamsCache().then(refreshBar);

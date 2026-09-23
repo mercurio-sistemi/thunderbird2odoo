@@ -171,6 +171,9 @@ async function loadTeams(selectAfter) {
       helpdeskTeamIdInput.appendChild(opt);
     }
     if (wanted) helpdeskTeamIdInput.value = wanted;
+    // Cached so the right-click menu and the status bar "Add" control can
+    // offer one entry per team without calling Odoo on every click.
+    await browser.storage.local.set({ helpdeskTeams: result.teams });
     loadTeamsStatus.textContent =
       result.teams.length + (result.teams.length === 1 ? " team" : " teams");
     loadTeamsStatus.style.color = "green";
