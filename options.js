@@ -19,6 +19,7 @@ const defaultImportAsInput = document.getElementById("defaultImportAs");
 const helpdeskTeamIdInput = document.getElementById("helpdeskTeamId");
 const loadTeamsBtn = document.getElementById("loadTeams");
 const loadTeamsStatus = document.getElementById("loadTeamsStatus");
+const rewriteDeliveredToInput = document.getElementById("rewriteDeliveredTo");
 const saveTicketBtn = document.getElementById("saveTicket");
 const ticketStatus = document.getElementById("ticketStatus");
 
@@ -34,6 +35,7 @@ const syncFields = [
   defaultImportAsInput,
   helpdeskTeamIdInput,
   loadTeamsBtn,
+  rewriteDeliveredToInput,
   saveTicketBtn,
 ];
 function setSyncEnabled(enabled) {
@@ -73,6 +75,7 @@ function invalidate() {
     "helpdeskTeamId",
     "helpdeskTeams",
     "defaultImportAs",
+    "rewriteDeliveredTo",
   ]);
   if (stored.url) urlInput.value = stored.url;
   if (stored.db) dbInput.value = stored.db;
@@ -81,6 +84,7 @@ function invalidate() {
   if (stored.syncLimit !== undefined) syncLimitInput.value = stored.syncLimit;
   if (stored.defaultImportAs)
     defaultImportAsInput.value = stored.defaultImportAs;
+  rewriteDeliveredToInput.checked = stored.rewriteDeliveredTo === true;
   // Show the cached teams (and the saved team) right away, so saving before
   // the teams are (re)loaded from Odoo keeps the saved team.
   fillTeamSelect(
@@ -217,7 +221,7 @@ saveTicketBtn.addEventListener("click", async () => {
     const teamId = helpdeskTeamIdInput.value;
     const importAs = defaultImportAsInput.value;
     const toRemove = [];
-    const toSet = {};
+    const toSet = { rewriteDeliveredTo: rewriteDeliveredToInput.checked };
     if (teamId === "") toRemove.push("helpdeskTeamId");
     else toSet.helpdeskTeamId = parseInt(teamId, 10);
     if (importAs === "") toRemove.push("defaultImportAs");

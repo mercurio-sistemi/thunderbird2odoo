@@ -82,6 +82,7 @@ The options page has three sections:
 - **Default Import Type** — preselected in the status bar. *Automatic* (default) uses Ticket when Helpdesk teams are loaded, otherwise Opportunity.
 - **Default Helpdesk Team** — team for tickets imported without picking a team. *Not set* lets Odoo choose.
 - **Load teams from Odoo** — reads the Helpdesk teams from Odoo and caches them. Click it once to enable the Ticket import entries, and again after changing the teams in Odoo.
+- **Replace `Delivered-To` with `X-Original-To`** — off by default. Enable it when Odoo adds an internal mailbox as a follower: Odoo reads the recipients from `Delivered-To` first, which after local delivery can hold that mailbox.
 
 **Odoo Sync** — Settings for bulk sync:
 - **Max age (days)** — how far back to look. 0 = unlimited.

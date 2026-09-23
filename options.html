@@ -209,6 +209,17 @@
         style="margin-left: 0.5rem; font-size: 0.9em"
       ></span>
       <br /><br />
+      <label>
+        <input id="rewriteDeliveredTo" type="checkbox" disabled />
+        Replace <code>Delivered-To</code> with <code>X-Original-To</code>
+        before upload
+      </label>
+      <p class="info">
+        Odoo reads the recipients from <code>Delivered-To</code> first. After
+        local delivery this header can hold an internal mailbox, which Odoo then
+        adds as a follower. When enabled, <code>Delivered-To</code> is replaced
+        with <code>X-Original-To</code>, or removed if that header is missing.
+      </p>
       <button id="saveTicket" type="button" disabled>Save</button>
       <span
         id="ticketStatus"

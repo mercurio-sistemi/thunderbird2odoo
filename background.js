@@ -14,7 +14,11 @@ import {
   unifyMessageId,
   listHelpdeskTeams,
 } from "./lib/odooClient.js";
-import { uploadMail, decodeRawMail } from "./lib/odooMailUpload.js";
+import {
+  uploadMail,
+  decodeRawMail,
+  rewriteDeliveredTo,
+} from "./lib/odooMailUpload.js";
 import {
   getCachedResult,
   setCachedResult,
@@ -222,6 +226,7 @@ browser.storage.onChanged.addListener((changes, area) => {
       "helpdeskTeamId",
       "helpdeskTeams",
       "defaultImportAs",
+      "rewriteDeliveredTo",
     ].some((k) => k in changes)
   )
     _cachedConfig = null;
@@ -239,6 +244,7 @@ async function get_config() {
     "helpdeskTeamId",
     "helpdeskTeams",
     "defaultImportAs",
+    "rewriteDeliveredTo",
   ]);
   return _cachedConfig;
 }
@@ -595,7 +601,11 @@ async function uploadAndShowResult(
   messageId,
   customValues = null,
 ) {
-  const rawResult = await uploadMail(cfg, decoded, model, customValues);
+  // Opt-in (Options page): see rewriteDeliveredTo() for the reason.
+  const message = cfg.rewriteDeliveredTo
+    ? rewriteDeliveredTo(decoded)
+    : decoded;
+  const rawResult = await uploadMail(cfg, message, model, customValues);
   console.debug("uploadAndShowResult: rawResult=" + JSON.stringify(rawResult));
 
   if (rawResult) {

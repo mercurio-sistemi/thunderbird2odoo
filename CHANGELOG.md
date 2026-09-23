@@ -11,6 +11,7 @@
 ### Fixes
 
 - **Stale cache on Verify**: predecessors are always re-checked in Odoo, so replies are no longer linked to a deleted record.
+- **Wrong follower on imported tickets** (opt-in, *Import Settings*): Odoo reads recipients from the `Delivered-To` header first, which after local delivery can hold the internal mailbox (e.g. `user@internal-domain`) and adds it as a follower. When enabled, `Delivered-To` is replaced with `X-Original-To` before upload (or removed when missing, so Odoo falls back to `To`).
 
 ## 0.6.3
 
