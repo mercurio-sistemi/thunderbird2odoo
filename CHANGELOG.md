@@ -8,6 +8,10 @@
 - **Import type chosen up front**: the "How do you want to import it?" popup is replaced by *Import as Ticket / Opportunity / Generic* entries in the right-click menu and an *Import as* select in the status bar. Without Helpdesk, the choice is Opportunity or Generic as before.
 - **Import Settings** in the options: default import type (automatic by default: Ticket when Helpdesk teams are loaded, otherwise Opportunity) and default Helpdesk team (not set by default: Odoo picks the team).
 
+### Fixes
+
+- **Stale cache on Verify**: predecessors are always re-checked in Odoo, so replies are no longer linked to a deleted record.
+
 ## 0.6.3
 
 ### Fixes

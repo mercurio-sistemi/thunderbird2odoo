@@ -25,6 +25,7 @@ import {
   setLastSync,
   CACHE_KEY,
 } from "./lib/mailCache.js";
+import { findPredecessor as findPredecessorIn } from "./lib/predecessor.js";
 import {
   MODEL_TICKET,
   MODEL_LEAD,
@@ -142,18 +143,13 @@ function getUrl(entry) {
   return null;
 }
 
-async function findPredecessor(cfg, pids) {
-  for (const pid of pids) {
-    const cached = await getCachedResult(pid);
-    if (cached?.status === "found") {
-      return { messageId: pid, entry: cached };
-    }
-    const found = await findAndCache(cfg, pid);
-    if (found.status === "found") {
-      return { messageId: pid, entry: found };
-    }
-  }
-  return null;
+function findPredecessor(cfg, pids) {
+  return findPredecessorIn(cfg, pids, {
+    findMails,
+    getCachedResult,
+    cacheFoundResult,
+    cacheNotFoundResult,
+  });
 }
 
 function notify(title, message, sticky = false) {
