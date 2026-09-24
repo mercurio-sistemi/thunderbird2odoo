@@ -53,7 +53,11 @@ function teamOptions(page) {
 }
 
 test("Import Settings stay disabled until the stored settings are restored", async () => {
-  const page = openOptions({ ...CONFIG, helpdeskTeamId: 7 });
+  const page = openOptions({
+    ...CONFIG,
+    helpdeskTeams: TEAMS,
+    helpdeskTeamId: 7,
+  });
   for (const id of IMPORT_CONTROLS)
     assert.equal(page.el(id).disabled, true, id + " enabled too early");
   // A click in that moment must not touch the saved team.
@@ -195,25 +199,140 @@ test("Load teams re-enables the button when the background does not answer", asy
   assert.match(page.el("loadTeamsStatus").textContent, /^Failed: Could not/);
 });
 
-test("saving the connection settings does not load the teams", async () => {
+function ticketOption(page) {
+  return page
+    .el("defaultImportAs")
+    .options.find((o) => o.value === "helpdesk.ticket");
+}
+
+test("without Helpdesk teams Ticket and the team are greyed out", async () => {
+  const page = openOptions({ ...CONFIG, helpdeskTeamId: 5 });
+  await settle();
+  assert.equal(ticketOption(page).disabled, true);
+  assert.equal(page.el("helpdeskTeamId").disabled, true);
+  assert.match(
+    page.el("helpdeskNote").textContent,
+    /^Helpdesk is not available/,
+  );
+  // The rest of Import Settings stays usable.
+  for (const id of [
+    "defaultImportAs",
+    "loadTeams",
+    "rewriteDeliveredTo",
+    "saveTicket",
+  ])
+    assert.equal(page.el(id).disabled, false, id);
+  // Opportunity and Generic can still be chosen.
+  const enabled = page
+    .el("defaultImportAs")
+    .options.filter((o) => !o.disabled)
+    .map((o) => o.value);
+  assert.deepEqual(enabled, ["", "crm.lead", "generic"]);
+  // Saving keeps the (greyed out) saved team.
+  await page.el("saveTicket").click();
+  await settle();
+  assert.equal(page.storage.helpdeskTeamId, 5);
+});
+
+test("with Helpdesk teams Ticket and the team can be selected", async () => {
+  const page = openOptions({ ...CONFIG, helpdeskTeams: TEAMS });
+  await settle();
+  assert.equal(ticketOption(page).disabled, false);
+  assert.equal(page.el("helpdeskTeamId").disabled, false);
+  assert.equal(page.el("helpdeskNote").textContent, "");
+});
+
+test("Load teams: Helpdesk not installed greys out the Ticket options", async () => {
+  const page = openOptions(
+    { ...CONFIG, helpdeskTeams: TEAMS },
+    {
+      listHelpdeskTeams: () => ({ ok: true, available: false, teams: [] }),
+    },
+  );
+  await settle();
+  await page.el("loadTeams").click();
+  await settle();
+  assert.equal(
+    page.el("loadTeamsStatus").textContent,
+    "Helpdesk is not installed in Odoo",
+  );
+  assert.deepEqual(page.storage.helpdeskTeams, []);
+  assert.equal(ticketOption(page).disabled, true);
+  assert.equal(page.el("helpdeskTeamId").disabled, true);
+});
+
+test("Load teams: finding teams enables the Ticket options", async () => {
+  const page = openOptions(
+    { ...CONFIG },
+    {
+      listHelpdeskTeams: () => ({ ok: true, available: true, teams: TEAMS }),
+    },
+  );
+  await settle();
+  assert.equal(ticketOption(page).disabled, true);
+  await page.el("loadTeams").click();
+  await settle();
+  assert.equal(ticketOption(page).disabled, false);
+  assert.equal(page.el("helpdeskTeamId").disabled, false);
+  assert.equal(page.el("helpdeskNote").textContent, "");
+});
+
+/** Types the connection settings and clicks "Test connection". */
+async function testConnection(page) {
+  page.el("url").value = CONFIG.url;
+  page.el("apikey").value = CONFIG.apikey;
+  await page.el("url").dispatch("input");
+  await page.el("test").click();
+  await settle();
+}
+
+test("Test connection also checks Helpdesk, with the settings being tested", async () => {
   const page = openOptions(
     {},
     {
       testConnection: () => ({ ok: true, info: {} }),
+      listHelpdeskTeams: () => ({ ok: true, available: false, teams: [] }),
       setup: () => ({ ok: true }),
     },
   );
   await settle();
-  page.el("url").value = CONFIG.url;
-  page.el("apikey").value = CONFIG.apikey;
-  await page.el("test").click();
-  await settle();
+  await testConnection(page);
+  const check = page.requests().find((m) => m.action === "listHelpdeskTeams");
+  assert.deepEqual(check.config, { ...CONFIG, db: null });
+  assert.equal(
+    page.el("loadTeamsStatus").textContent,
+    "Helpdesk is not installed in Odoo",
+  );
+  // Not saved yet: Import Settings stay disabled.
+  assert.equal(page.el("loadTeams").disabled, true);
+  assert.equal(ticketOption(page).disabled, true);
+
+  // Saving does not check again.
   await page.el("settings").dispatch("submit");
   await settle();
   assert.equal(page.el("status").textContent, "Settings saved");
   assert.deepEqual(
     page.requests().map((m) => m.action),
-    ["testConnection", "setup"],
+    ["testConnection", "listHelpdeskTeams", "setup"],
   );
   assert.equal(page.el("loadTeams").disabled, false);
+  assert.equal(ticketOption(page).disabled, true);
+});
+
+test("Test connection with Helpdesk enables the Ticket options after saving", async () => {
+  const page = openOptions(
+    {},
+    {
+      testConnection: () => ({ ok: true, info: {} }),
+      listHelpdeskTeams: () => ({ ok: true, available: true, teams: TEAMS }),
+      setup: () => ({ ok: true }),
+    },
+  );
+  await settle();
+  await testConnection(page);
+  await page.el("settings").dispatch("submit");
+  await settle();
+  assert.deepEqual(page.storage.helpdeskTeams, TEAMS);
+  assert.equal(ticketOption(page).disabled, false);
+  assert.equal(page.el("helpdeskTeamId").disabled, false);
 });

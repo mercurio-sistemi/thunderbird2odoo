@@ -22,6 +22,7 @@ const loadTeamsStatus = document.getElementById("loadTeamsStatus");
 const rewriteDeliveredToInput = document.getElementById("rewriteDeliveredTo");
 const saveTicketBtn = document.getElementById("saveTicket");
 const ticketStatus = document.getElementById("ticketStatus");
+const helpdeskNote = document.getElementById("helpdeskNote");
 
 const syncSettingsForm = document.getElementById("syncSettings");
 const syncFields = [
@@ -38,10 +39,29 @@ const syncFields = [
   rewriteDeliveredToInput,
   saveTicketBtn,
 ];
+let syncEnabled = false;
+// Helpdesk counts as available once teams were loaded (see
+// lib/importChoice.js); until then its options are shown greyed out.
+let helpdeskAvailable = false;
+
 function setSyncEnabled(enabled) {
+  syncEnabled = enabled;
   syncFields.forEach((el) => {
     if (el) el.disabled = !enabled;
   });
+  applyHelpdeskAvailability();
+}
+
+function applyHelpdeskAvailability() {
+  for (const opt of defaultImportAsInput.options) {
+    if (opt.value === "helpdesk.ticket") opt.disabled = !helpdeskAvailable;
+  }
+  helpdeskTeamIdInput.disabled = !syncEnabled || !helpdeskAvailable;
+  helpdeskNote.textContent = helpdeskAvailable
+    ? ""
+    : "Helpdesk is not available: no Helpdesk teams loaded from Odoo. " +
+      'Ticket import and the Helpdesk team stay disabled until "Load teams ' +
+      'from Odoo" finds Helpdesk teams.';
 }
 
 let lastValidHash = null;
@@ -87,10 +107,11 @@ function invalidate() {
   rewriteDeliveredToInput.checked = stored.rewriteDeliveredTo === true;
   // Show the cached teams (and the saved team) right away, so saving before
   // the teams are (re)loaded from Odoo keeps the saved team.
-  fillTeamSelect(
-    Array.isArray(stored.helpdeskTeams) ? stored.helpdeskTeams : [],
-    stored.helpdeskTeamId,
-  );
+  const cachedTeams = Array.isArray(stored.helpdeskTeams)
+    ? stored.helpdeskTeams
+    : [];
+  fillTeamSelect(cachedTeams, stored.helpdeskTeamId);
+  helpdeskAvailable = cachedTeams.length > 0;
   invalidate();
   if (stored.url && stored.apikey) setSyncEnabled(true);
   refreshCacheInfo();
@@ -145,6 +166,9 @@ testBtn.addEventListener("click", async () => {
     }
     testStatus.textContent = text;
     testStatus.style.color = "green";
+    // Also check whether Helpdesk is installed, so its options are only
+    // selectable where they make sense.
+    loadTeams(cfg);
   } else {
     testStatus.textContent = "Failed: " + (result?.error || "unknown error");
     testStatus.style.color = "#c0392b";
@@ -189,28 +213,40 @@ function fillTeamSelect(teams, selected) {
   helpdeskTeamIdInput.value = wanted;
 }
 
-async function loadTeams() {
+/**
+ * Reads the Helpdesk teams from Odoo and caches them. `config` is passed by
+ * "Test connection" to check settings that are not saved yet.
+ */
+async function loadTeams(config) {
   const wanted = helpdeskTeamIdInput.value;
   loadTeamsStatus.textContent = "Loading…";
   loadTeamsStatus.style.color = "";
   loadTeamsBtn.disabled = true;
   try {
-    const result = await browser.runtime.sendMessage({
-      action: "listHelpdeskTeams",
-    });
+    const msg = { action: "listHelpdeskTeams" };
+    if (config) msg.config = config;
+    const result = await browser.runtime.sendMessage(msg);
     if (!result?.ok) throw new Error(result?.error || "unknown error");
     fillTeamSelect(result.teams, wanted);
-    // Cached so the right-click menu and the status bar "Add" control can
-    // offer one entry per team without calling Odoo on every click.
+    // Cached so the import dialog and the status bar "Add" control can
+    // offer the teams without calling Odoo on every click. An empty list
+    // (Helpdesk not installed) disables the Ticket options.
     await browser.storage.local.set({ helpdeskTeams: result.teams });
-    loadTeamsStatus.textContent =
-      result.teams.length + (result.teams.length === 1 ? " team" : " teams");
-    loadTeamsStatus.style.color = "green";
+    helpdeskAvailable = result.teams.length > 0;
+    applyHelpdeskAvailability();
+    if (result.available === false) {
+      loadTeamsStatus.textContent = "Helpdesk is not installed in Odoo";
+      loadTeamsStatus.style.color = "";
+    } else {
+      loadTeamsStatus.textContent =
+        result.teams.length + (result.teams.length === 1 ? " team" : " teams");
+      loadTeamsStatus.style.color = "green";
+    }
   } catch (err) {
     loadTeamsStatus.textContent = "Failed: " + err.message;
     loadTeamsStatus.style.color = "#c0392b";
   } finally {
-    loadTeamsBtn.disabled = false;
+    loadTeamsBtn.disabled = !syncEnabled;
   }
 }
 

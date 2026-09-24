@@ -120,6 +120,8 @@ export class FakeDocument {
     return new FakeElement(tag, this);
   }
 
+  addEventListener() {}
+
   createTextNode(text) {
     return new FakeTextNode(text, this);
   }

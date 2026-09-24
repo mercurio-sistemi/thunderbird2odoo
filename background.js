@@ -13,6 +13,7 @@ import {
   countMailMessages,
   unifyMessageId,
   listHelpdeskTeams,
+  isModelInstalled,
 } from "./lib/odooClient.js";
 import {
   uploadMail,
@@ -34,31 +35,21 @@ import {
   MODEL_TICKET,
   MODEL_LEAD,
   MODEL_GENERIC,
-  getCachedTeams,
+  getTeamChoices,
+  isHelpdeskAvailable,
   resolveImportModel,
   resolveTeamId,
 } from "./lib/importChoice.js";
 
 const MENU_ID_CONNECTOR = "odoo-connector";
-const MENU_ID_IMPORT_TICKET = "odoo-import-ticket";
-const MENU_ID_IMPORT_OPPORTUNITY = "odoo-import-opportunity";
-const MENU_ID_IMPORT_GENERIC = "odoo-import-generic";
+const MENU_ID_IMPORT = "odoo-import";
 const MENU_ID_VERIFY = "odoo-verify";
 const MENU_ID_SYNC = "odoo-sync";
-const TEAM_MENU_PREFIX = "odoo-import-ticket-team-";
-
-const IMPORT_MENU_IDS = [
-  MENU_ID_IMPORT_TICKET,
-  MENU_ID_IMPORT_OPPORTUNITY,
-  MENU_ID_IMPORT_GENERIC,
-];
 
 const menuIds = new Set();
 menuIds
   .add(MENU_ID_CONNECTOR)
-  .add(MENU_ID_IMPORT_TICKET)
-  .add(MENU_ID_IMPORT_OPPORTUNITY)
-  .add(MENU_ID_IMPORT_GENERIC)
+  .add(MENU_ID_IMPORT)
   .add(MENU_ID_VERIFY)
   .add(MENU_ID_SYNC);
 
@@ -230,9 +221,6 @@ browser.storage.onChanged.addListener((changes, area) => {
     ].some((k) => k in changes)
   )
     _cachedConfig = null;
-  if (area === "local" && "helpdeskTeams" in changes) {
-    refreshMenus().catch((err) => console.warn("refreshMenus failed:", err));
-  }
 });
 
 async function get_config() {
@@ -272,18 +260,29 @@ async function findAndCache(cfg, id) {
   return result;
 }
 
-/**
- * (Re)builds the "Odoo Email Connector" right-click submenu.
- *
- * The Helpdesk team choice lives directly in the menu tree (one entry per
- * team, cached from the Options page) instead of a popup dialog, so a single
- * click imports the email with the right model/team already picked. The
- * Ticket entry is only shown once Helpdesk teams were loaded from Odoo.
- *
- * @param {Array<{id:number,name:string}>} teams cached Helpdesk teams
- */
-function buildMenus(teams) {
+async function setup() {
   browser.menus.removeAll();
+
+  const cfg = await get_config();
+
+  if (!cfg.url || !cfg.apikey) {
+    return;
+  }
+
+  const hasPermission = await browser.permissions.contains({
+    origins: ["*://*/*"],
+  });
+  if (hasPermission) {
+    try {
+      await testOdooConnection(cfg);
+    } catch (err) {
+      console.warn("setup: connection test failed, menus still created:", err);
+    }
+  } else {
+    console.debug(
+      "setup: host permission not granted yet, skipping connection test",
+    );
+  }
 
   const icon = {
     16: "icons/odoo-16.png",
@@ -300,38 +299,9 @@ function buildMenus(teams) {
     icons: icon,
   });
 
-  if (teams.length > 0) {
-    browser.menus.create({
-      id: MENU_ID_IMPORT_TICKET,
-      title: "Import as Ticket (Helpdesk)",
-      parentId: MENU_ID_CONNECTOR,
-      contexts: ["message_list"],
-      icons: icon,
-    });
-    if (teams.length > 1) {
-      for (const team of teams) {
-        browser.menus.create({
-          id: TEAM_MENU_PREFIX + team.id,
-          // "&" marks the access key in menu titles; "&&" is a literal "&".
-          title: String(team.name).replace(/&/g, "&&"),
-          parentId: MENU_ID_IMPORT_TICKET,
-          contexts: ["message_list"],
-        });
-      }
-    }
-  }
-
   browser.menus.create({
-    id: MENU_ID_IMPORT_OPPORTUNITY,
-    title: "Import as Opportunity (CRM Lead)",
-    parentId: MENU_ID_CONNECTOR,
-    contexts: ["message_list"],
-    icons: icon,
-  });
-
-  browser.menus.create({
-    id: MENU_ID_IMPORT_GENERIC,
-    title: "Import as Generic",
+    id: MENU_ID_IMPORT,
+    title: "Import this email",
     parentId: MENU_ID_CONNECTOR,
     contexts: ["message_list"],
     icons: icon,
@@ -354,50 +324,11 @@ function buildMenus(teams) {
   });
 }
 
-/**
- * Rebuilds the menus from the stored configuration; removes them while the
- * add-on is not configured.
- *
- * @returns {Promise<boolean>} whether the add-on is configured
- */
-async function refreshMenus() {
-  const cfg = await get_config();
-  if (!cfg.url || !cfg.apikey) {
-    browser.menus.removeAll();
-    return false;
-  }
-  buildMenus(getCachedTeams(cfg));
-  return true;
-}
-
-async function setup() {
-  if (!(await refreshMenus())) return;
-  const cfg = await get_config();
-
-  const hasPermission = await browser.permissions.contains({
-    origins: ["*://*/*"],
-  });
-  if (hasPermission) {
-    try {
-      await testOdooConnection(cfg);
-    } catch (err) {
-      console.warn("setup: connection test failed, menus still created:", err);
-    }
-  } else {
-    console.debug(
-      "setup: host permission not granted yet, skipping connection test",
-    );
-  }
-}
-
 browser.menus.onShown.addListener((info) => {
   if (menuIds.size === 0) return;
   const selectedCount = info.selectedMessages?.messages?.length ?? 0;
   browser.menus.update(MENU_ID_CONNECTOR, { visible: selectedCount >= 1 });
-  for (const id of IMPORT_MENU_IDS) {
-    // The Ticket entry does not exist without Helpdesk; ignore that error.
-    browser.menus.update(id, { visible: selectedCount === 1 }).catch(() => {});
-  }
+  browser.menus.update(MENU_ID_IMPORT, { visible: selectedCount === 1 });
   browser.menus.update(MENU_ID_VERIFY, {
     visible: selectedCount >= 1,
     title:
@@ -454,17 +385,31 @@ async function getHeaders(messageId) {
 }
 
 async function showDialog(title, message, buttons = []) {
+  return (await openDialog(title, message, buttons)).choice;
+}
+
+/**
+ * Opens dialog.html and waits for a button click.
+ *
+ * @param {Array<{title:string,value:*,tooltip?:string}>} buttons
+ * @param {Array<{id:string,label:string,options:Array<{value:string,label:string}>,selected?:string}>} selects
+ *   optional <select> fields shown above the buttons
+ * @returns {Promise<{choice:*, values:Object<string,string>}>} the clicked
+ *   button's value (-1 if the window was closed) and the select values
+ */
+async function openDialog(title, message, buttons = [], selects = []) {
   const params = new URLSearchParams({
     title,
     message,
     buttons: JSON.stringify(buttons),
   });
+  if (selects.length) params.set("selects", JSON.stringify(selects));
   const url = browser.runtime.getURL("dialog.html?" + params);
   const win = await browser.windows.create({
     url: url,
     type: "popup",
     width: 600,
-    height: 360,
+    height: 360 + selects.length * 70,
   });
   let done = false;
   return new Promise((resolve) => {
@@ -477,13 +422,13 @@ async function showDialog(title, message, buttons = []) {
     const msgListener = (msg) => {
       if (msg.action === "dialogChoice" && msg.windowId === win.id) {
         cleanup();
-        resolve(msg.choice);
+        resolve({ choice: msg.choice, values: msg.values || {} });
       }
     };
     const closeListener = (windowId) => {
       if (windowId === win.id) {
         cleanup();
-        resolve(-1);
+        resolve({ choice: -1, values: {} });
       }
     };
     browser.runtime.onMessage.addListener(msgListener);
@@ -491,7 +436,48 @@ async function showDialog(title, message, buttons = []) {
   });
 }
 
-async function importMessageById(tbMessageId, choice = {}) {
+/**
+ * Asks how to import an email that is not in Odoo and has no predecessor
+ * there. Offers Opportunity and Generic as before; Ticket (and, with several
+ * teams, a team select) only once Helpdesk teams were loaded.
+ *
+ * @returns {Promise<{model:string, teamId?:string}|null>} null if closed
+ */
+async function askImportChoice(cfg) {
+  const buttons = [
+    { title: "As Opportunity (CRM Lead)", value: MODEL_LEAD },
+    {
+      title: "Generic",
+      value: MODEL_GENERIC,
+      tooltip:
+        "Might fail on Odoo 19 without Lost Messages module, see https://github.com/joergsteffens/thunderbird2odoo",
+    },
+  ];
+  const selects = [];
+  if (isHelpdeskAvailable(cfg)) {
+    buttons.unshift({ title: "As Ticket (Helpdesk)", value: MODEL_TICKET });
+    const teams = getTeamChoices(cfg);
+    if (teams) {
+      selects.push({
+        id: "team",
+        label: "Helpdesk team (for tickets)",
+        ...teams,
+      });
+    }
+  }
+  const { choice, values } = await openDialog(
+    "Odoo Email Connector",
+    "This email and its predecessor are not in Odoo. How do you want to import it?",
+    buttons,
+    selects,
+  );
+  if (![MODEL_TICKET, MODEL_LEAD, MODEL_GENERIC].includes(choice)) return null;
+  const result = { model: choice };
+  if (choice === MODEL_TICKET && values.team) result.teamId = values.team;
+  return result;
+}
+
+async function importMessageById(tbMessageId, choice = null) {
   const hasPermission = await browser.permissions.contains({
     origins: ["*://*/*"],
   });
@@ -537,10 +523,12 @@ async function importMessageById(tbMessageId, choice = {}) {
     return mid;
   }
 
-  // Step 3: No predecessor found — the model (and, for tickets, the team)
-  // is chosen up front by the caller (right-click submenu or the status
-  // bar's "Add" control), not through a popup.
+  // Step 3: No predecessor found. The status bar sends the model (and
+  // team) picked in its "Import as" control; otherwise ask in a dialog.
   await cacheNotFoundResult(mid);
+
+  if (!choice?.model) choice = await askImportChoice(cfg);
+  if (!choice) return mid;
 
   const model = resolveImportModel(choice, cfg);
   if (model === MODEL_TICKET) {
@@ -657,11 +645,11 @@ async function uploadAndShowResult(
   }
 }
 
-async function handleOdooImporter(info, choice) {
+async function handleOdooImporter(info) {
   try {
     const message = info.selectedMessages?.messages?.[0];
     if (!message) throw new Error("Select exactly one email");
-    await importMessageById(message.id, choice);
+    await importMessageById(message.id);
   } catch (err) {
     await showDialog("Odoo – Error", err.message);
   }
@@ -699,19 +687,8 @@ async function verifyMessages(tbMessageIds) {
 }
 
 browser.menus.onClicked.addListener(async (info, tab) => {
-  const menuItemId = info.menuItemId;
-  if (menuItemId === MENU_ID_IMPORT_TICKET) {
-    await handleOdooImporter(info, { model: MODEL_TICKET });
-  } else if (
-    typeof menuItemId === "string" &&
-    menuItemId.startsWith(TEAM_MENU_PREFIX)
-  ) {
-    const teamId = menuItemId.slice(TEAM_MENU_PREFIX.length);
-    await handleOdooImporter(info, { model: MODEL_TICKET, teamId });
-  } else if (menuItemId === MENU_ID_IMPORT_OPPORTUNITY) {
-    await handleOdooImporter(info, { model: MODEL_LEAD });
-  } else if (menuItemId === MENU_ID_IMPORT_GENERIC) {
-    await handleOdooImporter(info, { model: MODEL_GENERIC });
+  if (info.menuItemId === MENU_ID_IMPORT) {
+    await handleOdooImporter(info);
   } else if (info.menuItemId === MENU_ID_VERIFY) {
     const messages = info.selectedMessages?.messages;
     if (!messages?.length) return;
@@ -922,12 +899,19 @@ async function handleCountOdooMessages(msg) {
   }
 }
 
-async function handleListHelpdeskTeams() {
-  const cfg = await requireConfig();
+/**
+ * Reads the Helpdesk teams. `available` is false when Helpdesk is not
+ * installed in Odoo. Uses msg.config when given ("Test connection" checks
+ * the settings before they are saved), otherwise the stored settings.
+ */
+async function handleListHelpdeskTeams(msg) {
+  const cfg = msg.config || (await requireConfig());
   if (!cfg) return { ok: false, error: "Not configured" };
   try {
+    if (!(await isModelInstalled(cfg, "helpdesk.team")))
+      return { ok: true, available: false, teams: [] };
     const teams = await listHelpdeskTeams(cfg);
-    return { ok: true, teams };
+    return { ok: true, available: true, teams };
   } catch (err) {
     return errorResult(err);
   }
@@ -958,7 +942,7 @@ browser.runtime.onMessage.addListener((msg, sender) => {
         return handleCountOdooMessages(msg);
 
       case "listHelpdeskTeams":
-        return handleListHelpdeskTeams();
+        return handleListHelpdeskTeams(msg);
 
       case "clearCache":
         return clearAllCache().then(() => ({ ok: true }));

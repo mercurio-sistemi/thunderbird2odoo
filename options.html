@@ -174,7 +174,7 @@
         Default Import Type:<br />
         <select id="defaultImportAs" disabled>
           <option value="">
-            Automatic (Ticket if Helpdesk teams are loaded, else Opportunity)
+            Automatic (Ticket if Helpdesk is available, else Opportunity)
           </option>
           <option value="helpdesk.ticket">Ticket (Helpdesk)</option>
           <option value="crm.lead">Opportunity (CRM Lead)</option>
@@ -183,8 +183,8 @@
       </label>
       <p class="info">
         Preselected type in the status bar's "Import as" control when a new
-        email has no match in Odoo. Ticket is only offered once Helpdesk teams
-        have been loaded from Odoo; otherwise Opportunity is used.
+        email has no match in Odoo. Ticket can only be selected once Helpdesk
+        teams have been loaded from Odoo; otherwise Opportunity is used.
       </p>
       <label>
         Default Helpdesk Team:<br />
@@ -197,10 +197,11 @@
         "not set" to let Odoo choose its default team.
       </p>
       <p class="info">
-        "Load teams from Odoo" reads the Helpdesk teams and caches them. Click it
-        once to enable the Ticket import entries, and again after changing the
-        teams in Odoo.
+        "Load teams from Odoo" reads the Helpdesk teams and caches them. "Test
+        connection" does the same. Click it again after changing the teams in
+        Odoo.
       </p>
+      <p id="helpdeskNote" class="info"></p>
       <button id="loadTeams" type="button" disabled>Load teams from Odoo</button>
       <span
         id="loadTeamsStatus"

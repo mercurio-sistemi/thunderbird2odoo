@@ -29,7 +29,7 @@ This Thunderbird add-on imports emails into the ERP software [Odoo](https://www.
 The add-on never contacts the Odoo server automatically. Server requests are only made when explicitly triggered by the user:
 
 - clicking **Verify** or **Add** in the status bar
-- selecting **Verify** or one of the **Import as …** entries from the right-click menu
+- selecting **Verify** or **Import this email** from the right-click menu
 - selecting **Sync from Odoo** from the right-click menu
 - clicking a button on the options page (e.g. **Test connection**, **Load teams from Odoo**, **Sync**)
 
@@ -41,15 +41,13 @@ Right-click one or more emails in the message list and select **Odoo Email Conne
 
 | Menu item   | Action |
 |-------------|--------|
-| **Import as Ticket (Helpdesk)** | Only shown once Helpdesk teams were loaded (see *Import Settings* in the options). With more than one team, pick the team from the submenu. |
-| **Import as Opportunity (CRM Lead)** | Imports the email as a CRM lead. |
-| **Import as Generic** | Imports the email without a target model (may not be visible in Odoo without `mail_manual_routing`, see Requirements). |
+| **Import this email** | Checks Odoo; if not found, checks the parent thread (In-Reply-To / References). Offers to import as *Opportunity (CRM Lead)* or *Generic*, and as *Ticket (Helpdesk)* when Helpdesk is available (with a team select when there are several teams). |
 | **Verify** | Checks selected emails against Odoo and caches the result. Shows count label (e.g. *Verify 3 messages*). |
 | **Sync from Odoo** | Bulk-fetches message IDs from Odoo (within max-age window) into the local cache. |
 
-All import entries first check Odoo: an email already in Odoo is only reported. If a predecessor
-(In-Reply-To / References) is in Odoo, the email is attached to that record after a confirmation.
-The chosen type (and team) is only used when neither the email nor a predecessor is in Odoo.
+The import type is only asked when neither the email nor a predecessor is in Odoo: an email already
+in Odoo is only reported, and a reply is attached to its predecessor's record after a confirmation.
+Helpdesk counts as available once Helpdesk teams were loaded (see *Import Settings* below).
 
 ### Status Bar
 
@@ -79,9 +77,9 @@ The options page has three sections:
 **Odoo Connection** — URL, API key, database, test connection, save.
 
 **Import Settings** — Settings for new emails without a match in Odoo:
-- **Default Import Type** — preselected in the status bar. *Automatic* (default) uses Ticket when Helpdesk teams are loaded, otherwise Opportunity.
-- **Default Helpdesk Team** — team for tickets imported without picking a team. *Not set* lets Odoo choose.
-- **Load teams from Odoo** — reads the Helpdesk teams from Odoo and caches them. Click it once to enable the Ticket import entries, and again after changing the teams in Odoo.
+- **Default Import Type** — preselected in the status bar's *Import as* control. *Automatic* (default) uses Ticket when Helpdesk is available, otherwise Opportunity.
+- **Default Helpdesk Team** — preselected team for tickets. *Not set* lets Odoo choose.
+- **Load teams from Odoo** — checks whether Helpdesk is installed and caches its teams. *Test connection* does the same. Without Helpdesk, *Ticket* and the Helpdesk team are shown greyed out. Click it again after changing the teams in Odoo.
 - **Replace `Delivered-To` with `X-Original-To`** — off by default. Enable it when Odoo adds an internal mailbox as a follower: Odoo reads the recipients from `Delivered-To` first, which after local delivery can hold that mailbox.
 
 **Odoo Sync** — Settings for bulk sync:

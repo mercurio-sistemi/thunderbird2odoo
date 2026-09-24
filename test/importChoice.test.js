@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   getDefaultImportModel,
+  getTeamChoices,
   isHelpdeskAvailable,
   resolveImportModel,
   resolveTeamId,
@@ -103,4 +104,39 @@ test("resolveTeamId ignores a configured team missing from the cached teams", ()
 
 test("resolveTeamId keeps the configured team when no teams are cached", () => {
   assert.equal(resolveTeamId({}, { helpdeskTeamId: 99 }), 99);
+});
+
+test("getTeamChoices offers no select with fewer than two teams", () => {
+  assert.equal(getTeamChoices({}), null);
+  assert.equal(getTeamChoices({ helpdeskTeams: [TEAMS[0]] }), null);
+});
+
+test("getTeamChoices starts with Default team when none is configured", () => {
+  assert.deepEqual(getTeamChoices({ helpdeskTeams: TEAMS }), {
+    options: [
+      { value: "", label: "Default team" },
+      { value: "3", label: "Customer Care" },
+      { value: "7", label: "Support" },
+    ],
+    selected: "",
+  });
+});
+
+test("getTeamChoices preselects the configured default team", () => {
+  assert.deepEqual(
+    getTeamChoices({ helpdeskTeams: TEAMS, helpdeskTeamId: 7 }),
+    {
+      options: [
+        { value: "3", label: "Customer Care" },
+        { value: "7", label: "Support" },
+      ],
+      selected: "7",
+    },
+  );
+});
+
+test("getTeamChoices ignores a configured team missing from the list", () => {
+  const choices = getTeamChoices({ helpdeskTeams: TEAMS, helpdeskTeamId: 99 });
+  assert.equal(choices.selected, "");
+  assert.equal(choices.options[0].label, "Default team");
 });

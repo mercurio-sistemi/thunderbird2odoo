@@ -4,9 +4,9 @@
 
 ### Features
 
-- **Import as Helpdesk Ticket**: emails can be imported as `helpdesk.ticket`. The entry appears once Helpdesk teams are loaded in the options (click *Import Settings → Load teams from Odoo* once after upgrading); with several teams, the team is picked from the submenu or the status bar.
-- **Import type chosen up front**: the "How do you want to import it?" popup is replaced by *Import as Ticket / Opportunity / Generic* entries in the right-click menu and an *Import as* select in the status bar. Without Helpdesk, the choice is Opportunity or Generic as before.
-- **Import Settings** in the options: default import type (automatic by default: Ticket when Helpdesk teams are loaded, otherwise Opportunity) and default Helpdesk team (not set by default: Odoo picks the team).
+- **Import as Helpdesk Ticket**: emails can be imported as `helpdesk.ticket`. When Helpdesk is available, the "How do you want to import it?" dialog also offers *As Ticket (Helpdesk)*, with a team select when there are several teams. Without Helpdesk, the dialog is unchanged (Opportunity or Generic).
+- **Status bar**: for an email without Odoo record and predecessor, *Add* comes with an *Import as* select (and a team select for tickets), so the email is imported with one click.
+- **Import Settings** in the options: default import type (automatic by default: Ticket when Helpdesk is available, otherwise Opportunity), default Helpdesk team (not set by default: Odoo picks the team), *Load teams from Odoo*. *Test connection* and *Load teams from Odoo* check whether Helpdesk is installed; without it, the Helpdesk options are shown greyed out. After upgrading, click *Load teams from Odoo* once to enable the Ticket import.
 
 ### Fixes
 

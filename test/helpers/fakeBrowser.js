@@ -27,11 +27,15 @@ function clone(value) {
  * @param {string} [opts.rawMail] RFC822 source returned by messages.getRaw
  * @param {Function} [opts.onSendMessage] handler for runtime.sendMessage
  *   (used by the display and options scripts, which talk to the background)
+ * @param {Function} [opts.answerDialog] simulates the user in dialog.html:
+ *   gets the dialog ({title, message, buttons, selects}) and returns
+ *   {choice, values} for a button click, or null to close the window
  */
 export function createFakeBrowser({
   storage = {},
   rawMail = "",
   onSendMessage = async () => undefined,
+  answerDialog = () => null,
 } = {}) {
   const data = clone(storage);
   const onChanged = makeEvent();
@@ -113,9 +117,24 @@ export function createFakeBrowser({
     windows: {
       async create(opts) {
         const id = nextWindowId++;
-        dialogs.push(new URLSearchParams(opts.url.split("?")[1] || ""));
-        // Nobody clicks in tests: close the dialog right away.
-        setTimeout(() => windowsOnRemoved.fire(id), 0);
+        const params = new URLSearchParams(opts.url.split("?")[1] || "");
+        const dialog = {
+          title: params.get("title"),
+          message: params.get("message"),
+          buttons: JSON.parse(params.get("buttons") || "[]"),
+          selects: JSON.parse(params.get("selects") || "[]"),
+        };
+        dialogs.push(dialog);
+        const answer = answerDialog(dialog);
+        setTimeout(() => {
+          if (answer)
+            fake.runtime.onMessage.fire({
+              action: "dialogChoice",
+              windowId: id,
+              ...answer,
+            });
+          else windowsOnRemoved.fire(id);
+        }, 0);
         return { id };
       },
       onRemoved: windowsOnRemoved,
